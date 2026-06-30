@@ -324,6 +324,7 @@ function App() {
   const [view, setView] = useState("loading");
   const [user, setUser] = useState(null);
   const [tenant, setTenant] = useState(null);
+  const [userRole, setUserRole] = useState("tech");
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -343,8 +344,36 @@ function App() {
     const { data: tu } = await supabase.from("tenant_users")
       .select("*, tenants(*)")
       .eq("user_id", authUser.id).eq("active", true).maybeSingle();
-    if (tu?.tenants) { setTenant(tu.tenants); setView("app"); }
-    else setView("wizard");
+    if (tu?.tenants) {
+      setTenant(tu.tenants);
+      setUserRole(tu.role || "tech");
+      setView("app");
+      return;
+    }
+    // Check for pending invite by email
+    const { data: invite } = await supabase.from("tenant_invites")
+      .select("*, tenants(*)")
+      .eq("email", authUser.email)
+      .is("accepted_at", null)
+      .maybeSingle();
+    if (invite?.tenants) {
+      // Accept invite: create tenant_users row, mark invite accepted
+      await supabase.from("tenant_users").insert({
+        tenant_id: invite.tenant_id,
+        user_id: authUser.id,
+        email: authUser.email,
+        role: invite.role,
+        can_invoice: invite.can_invoice,
+        active: true,
+      });
+      await supabase.from("tenant_invites").update({ accepted_at: new Date().toISOString() }).eq("id", invite.id);
+      setTenant(invite.tenants);
+      setUserRole(invite.role);
+      setView("app");
+      return;
+    }
+    // No tenant and no invite → setup wizard (new company)
+    setView("wizard");
   };
 
   if (view === "loading") return <div className="auth-wrap"><div>Loading…</div></div>;
@@ -352,7 +381,7 @@ function App() {
   if (view === "signin")  return <SignIn onSwitchSignup={()=>setView("signup")} onBack={()=>setView("landing")} />;
   if (view === "signup")  return <SignUp onSwitchSignin={()=>setView("signin")} onBack={()=>setView("landing")} />;
   if (view === "wizard")  return <SetupWizard user={user} onComplete={(t)=>{setTenant(t);setView("app");}} />;
-  if (view === "app")     return <WorkOrderApp user={user} tenant={tenant} />;
+  if (view === "app")     return <WorkOrderApp user={user} tenant={tenant} userRole={userRole} />;
   return null;
 }
 
@@ -508,13 +537,14 @@ function SetupWizard({ user, onComplete }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // WORK ORDER APP — three-step flow
 // ═══════════════════════════════════════════════════════════════════════════
-function WorkOrderApp({ user, tenant }) {
+function WorkOrderApp({ user, tenant, userRole }) {
   const [step, setStep] = useState(1);
   const [workOrders, setWorkOrders] = useState([]);
   const [editingWO, setEditingWO] = useState(null);
   const [qboConnected, setQboConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [settings, setSettings] = useState({ hide_rates_from_techs: false });
 
   const loadWOs = async () => {
     const { data } = await supabase.from("work_orders")
@@ -526,10 +556,17 @@ function WorkOrderApp({ user, tenant }) {
     const { data } = await supabase.from("qbo_tokens").select("tenant_id").eq("tenant_id", tenant.id).maybeSingle();
     setQboConnected(!!data);
   };
+  const loadSettings = async () => {
+    const { data } = await supabase.from("tenant_settings").select("*").eq("tenant_id", tenant.id).maybeSingle();
+    if (data) setSettings(data);
+  };
 
   useEffect(() => {
-    Promise.all([loadWOs(), loadQbo()]).then(() => setLoading(false));
+    Promise.all([loadWOs(), loadQbo(), loadSettings()]).then(() => setLoading(false));
   }, [tenant.id]);
+
+  // Hide rates from techs if setting is on and user is a tech (not owner/admin)
+  const hideRates = settings.hide_rates_from_techs && userRole === "tech";
 
   const openCount = workOrders.filter(w => w.status === "open").length;
   const signOut = async () => { await supabase.auth.signOut(); };
@@ -554,9 +591,11 @@ function WorkOrderApp({ user, tenant }) {
       </div>
 
       {showSettings && (
-        <Settings tenant={tenant} user={user} qboConnected={qboConnected}
+        <Settings tenant={tenant} user={user} userRole={userRole} qboConnected={qboConnected}
+          settings={settings}
           onClose={()=>setShowSettings(false)}
-          onQboChange={loadQbo}/>
+          onQboChange={loadQbo}
+          onSettingsChange={loadSettings}/>
       )}
 
       <div className="main">
@@ -564,14 +603,14 @@ function WorkOrderApp({ user, tenant }) {
 
         {step === 1 && (
           <CreateWO
-            tenant={tenant} user={user}
+            tenant={tenant} user={user} hideRates={hideRates}
             onSaved={() => { loadWOs(); setStep(2); }}
           />
         )}
 
         {step === 2 && (
           <OpenList
-            workOrders={workOrders}
+            workOrders={workOrders} hideRates={hideRates}
             loading={loading}
             onPickInvoice={(wo) => { setEditingWO(wo); setStep(3); }}
             onCreateNew={() => setStep(1)}
@@ -582,7 +621,7 @@ function WorkOrderApp({ user, tenant }) {
           <InvoicePush
             wo={editingWO}
             qboConnected={qboConnected}
-            user={user}
+            user={user} hideRates={hideRates} userRole={userRole}
             onDone={() => { loadWOs(); setEditingWO(null); setStep(2); }}
             onBack={() => setStep(2)}
           />
@@ -619,7 +658,7 @@ function StepRibbon({ step, setStep, openCount, hasEditing }) {
 }
 
 // ─── STEP 1: CREATE WORK ORDER ───────────────────────────────────────────────
-function CreateWO({ tenant, user, onSaved }) {
+function CreateWO({ tenant, user, hideRates, onSaved }) {
   const newLine = () => ({ item: "", desc: "", qty: 1, rate: 0 });
   const [date, setDate] = useState(today());
   const [customer, setCustomer] = useState("");
@@ -644,7 +683,6 @@ function CreateWO({ tenant, user, onSaved }) {
 
     setSaving(true);
     try {
-      // Get next WO number
       const next = (tenant.next_wo_number || 1000);
       const woId = String(next);
 
@@ -660,10 +698,7 @@ function CreateWO({ tenant, user, onSaved }) {
         created_by: user.id,
       });
       if (error) throw error;
-
-      // Bump tenant's next WO number
       await supabase.from("tenants").update({ next_wo_number: next + 1 }).eq("id", tenant.id);
-
       onSaved();
     } catch (e) {
       setErr(e.message);
@@ -682,7 +717,6 @@ function CreateWO({ tenant, user, onSaved }) {
 
       {err && <div className="alert alert-error">{err}</div>}
 
-      {/* Customer / Date / Tech strip */}
       <div className="hdr-grid">
         <div className="fg">
           <label className="label">Customer</label>
@@ -698,16 +732,15 @@ function CreateWO({ tenant, user, onSaved }) {
         </div>
       </div>
 
-      {/* QBO Line-item grid */}
       <table className="linegrid">
         <thead>
           <tr>
             <th className="cnum">#</th>
-            <th style={{width:"24%"}}>Product/Service</th>
+            <th style={{width: hideRates ? "30%" : "24%"}}>Product/Service</th>
             <th>Description</th>
             <th className="num" style={{width:"10%"}}>Qty</th>
-            <th className="num" style={{width:"12%"}}>Rate</th>
-            <th className="num" style={{width:"14%"}}>Amount</th>
+            {!hideRates && <th className="num" style={{width:"12%"}}>Rate</th>}
+            {!hideRates && <th className="num" style={{width:"14%"}}>Amount</th>}
             <th style={{width:"36px"}}></th>
           </tr>
         </thead>
@@ -724,10 +757,10 @@ function CreateWO({ tenant, user, onSaved }) {
               <td data-l="Qty">
                 <input className="cell-input num" type="number" step="0.01" value={l.qty} onChange={e=>updateLine(i,{qty:e.target.value})}/>
               </td>
-              <td data-l="Rate">
+              {!hideRates && <td data-l="Rate">
                 <input className="cell-input num" type="number" step="0.01" value={l.rate} onChange={e=>updateLine(i,{rate:e.target.value})}/>
-              </td>
-              <td data-l="Amount" className="cell-amount">{fmt$((Number(l.qty)||0)*(Number(l.rate)||0))}</td>
+              </td>}
+              {!hideRates && <td data-l="Amount" className="cell-amount">{fmt$((Number(l.qty)||0)*(Number(l.rate)||0))}</td>}
               <td className="row-del"><button onClick={()=>delLine(i)} title="Delete">✕</button></td>
             </tr>
           ))}
@@ -744,12 +777,14 @@ function CreateWO({ tenant, user, onSaved }) {
         <textarea className="input" rows="2" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes (internal)"></textarea>
       </div>
 
-      <div className="totals">
-        <div className="totals-box">
-          <div className="totals-row"><span>Subtotal</span><span className="val">{fmt$(total)}</span></div>
-          <div className="totals-row total"><span>Total</span><span className="val">{fmt$(total)}</span></div>
+      {!hideRates && (
+        <div className="totals">
+          <div className="totals-box">
+            <div className="totals-row"><span>Subtotal</span><span className="val">{fmt$(total)}</span></div>
+            <div className="totals-row total"><span>Total</span><span className="val">{fmt$(total)}</span></div>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="action-bar">
         <button className="btn btn-primary" onClick={save} disabled={saving}>
@@ -761,7 +796,7 @@ function CreateWO({ tenant, user, onSaved }) {
 }
 
 // ─── STEP 2: OPEN WO LIST ────────────────────────────────────────────────────
-function OpenList({ workOrders, loading, onPickInvoice, onCreateNew }) {
+function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew }) {
   const open = workOrders.filter(w => w.status === "open");
   const recent = workOrders.filter(w => w.status === "invoiced").slice(0, 5);
 
@@ -797,7 +832,7 @@ function OpenList({ workOrders, loading, onPickInvoice, onCreateNew }) {
                 </div>
               </div>
               <div className="wo-meta-r">
-                <div className="wo-amt">{fmt$(woTotal(wo))}</div>
+                {!hideRates && <div className="wo-amt">{fmt$(woTotal(wo))}</div>}
                 <span className="wo-pill open">Open</span>
                 <div className="wo-actions">
                   <button className="btn btn-outline btn-sm" onClick={()=>onPickInvoice(wo)}>
@@ -827,7 +862,7 @@ function OpenList({ workOrders, loading, onPickInvoice, onCreateNew }) {
                 <div className="wo-info">{wo.date} · {wo.technician || "—"}</div>
               </div>
               <div className="wo-meta-r">
-                <div className="wo-amt">{fmt$(woTotal(wo))}</div>
+                {!hideRates && <div className="wo-amt">{fmt$(woTotal(wo))}</div>}
                 <span className="wo-pill invoiced">Invoiced</span>
               </div>
             </div>
@@ -948,19 +983,189 @@ function InvoicePush({ wo, qboConnected, user, onDone, onBack }) {
 }
 
 // ─── SETTINGS MODAL ──────────────────────────────────────────────────────────
-function Settings({ tenant, user, qboConnected, onClose, onQboChange }) {
+// ─── TEAM MANAGEMENT (Owner/Admin only) ─────────────────────────────────────
+function TeamSection({ tenant, currentUserId }) {
+  const [members, setMembers] = useState([]);
+  const [invites, setInvites] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("tech");
+  const [inviteInvoice, setInviteInvoice] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    const [{ data: m }, { data: i }] = await Promise.all([
+      supabase.from("tenant_users").select("*").eq("tenant_id", tenant.id).order("created_at"),
+      supabase.from("tenant_invites").select("*").eq("tenant_id", tenant.id).is("accepted_at", null).order("invited_at", { ascending: false }),
+    ]);
+    setMembers(m || []);
+    setInvites(i || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const sendInvite = async () => {
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email) { alert("Email is required"); return; }
+    setBusy(true);
+    try {
+      // Check for duplicate
+      const { data: existing } = await supabase.from("tenant_invites")
+        .select("id").eq("tenant_id", tenant.id).eq("email", email).is("accepted_at", null).maybeSingle();
+      if (existing) { alert("An invite is already pending for that email."); setBusy(false); return; }
+
+      const { error } = await supabase.from("tenant_invites").insert({
+        tenant_id: tenant.id,
+        email,
+        role: inviteRole,
+        can_invoice: inviteInvoice,
+        invited_by: currentUserId,
+        invited_by_email: tenant.owner_email,
+      });
+      if (error) throw error;
+
+      alert(`✅ Invite created for ${email}.\n\nShare this link with them:\n${window.location.origin}\n\nThey should sign up with this exact email address. They'll automatically join your team.`);
+      setInviteEmail(""); setInviteRole("tech"); setInviteInvoice(false); setShowInvite(false);
+      load();
+    } catch (e) {
+      alert(`Failed to create invite: ${e.message}`);
+    }
+    setBusy(false);
+  };
+
+  const updateMember = async (id, patch) => {
+    const { error } = await supabase.from("tenant_users").update(patch).eq("id", id);
+    if (error) alert(`Failed to update: ${error.message}`);
+    load();
+  };
+
+  const removeInvite = async (id) => {
+    if (!confirm("Cancel this invitation?")) return;
+    await supabase.from("tenant_invites").delete().eq("id", id);
+    load();
+  };
+
+  const removeMember = async (id, email) => {
+    if (!confirm(`Remove ${email} from the team? They'll lose access immediately.`)) return;
+    await supabase.from("tenant_users").update({ active: false }).eq("id", id);
+    load();
+  };
+
+  return (
+    <div className="settings-section">
+      <div className="settings-h">Team Members</div>
+      <div className="settings-sub">Invite teammates and assign roles.</div>
+
+      {loading ? <div style={{fontSize:13,color:"var(--muted)"}}>Loading…</div> : (
+        <>
+          {/* Active members */}
+          <div style={{marginBottom:12}}>
+            {members.filter(m=>m.active).map(m => (
+              <div key={m.id} style={{padding:"10px 12px",background:"#fafaf6",borderRadius:6,marginBottom:6,display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center"}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                    {m.email}
+                    {m.user_id === currentUserId && <span style={{fontSize:10,marginLeft:6,padding:"1px 5px",background:"#d6eaf8",color:"#1b4f72",borderRadius:3}}>YOU</span>}
+                  </div>
+                  <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>
+                    {m.role}{m.can_invoice && " · can invoice"}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:4}}>
+                  {m.user_id !== currentUserId && m.role !== "owner" && (
+                    <>
+                      <select value={m.role} onChange={e=>updateMember(m.id,{role:e.target.value})}
+                        style={{fontSize:11,padding:"4px 6px",border:"1px solid var(--line)",borderRadius:4,fontFamily:"inherit"}}>
+                        <option value="admin">Admin</option>
+                        <option value="tech">Tech</option>
+                        <option value="viewer">Viewer</option>
+                      </select>
+                      <label style={{display:"flex",alignItems:"center",gap:4,fontSize:11}}>
+                        <input type="checkbox" checked={m.can_invoice} onChange={e=>updateMember(m.id,{can_invoice:e.target.checked})}/>
+                        $
+                      </label>
+                      <button onClick={()=>removeMember(m.id, m.email)} title="Remove"
+                        style={{background:"transparent",border:"none",color:"var(--red)",cursor:"pointer",fontSize:13,padding:"0 4px"}}>✕</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Pending invites */}
+          {invites.length > 0 && (
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:600,color:"var(--muted)",marginBottom:6,textTransform:"uppercase",letterSpacing:0.5}}>Pending invitations</div>
+              {invites.map(inv => (
+                <div key={inv.id} style={{padding:"8px 12px",background:"#fef9e7",borderRadius:6,marginBottom:6,display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center"}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{inv.email}</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>{inv.role}{inv.can_invoice && " · can invoice"} · pending</div>
+                  </div>
+                  <button onClick={()=>removeInvite(inv.id)} title="Cancel invite"
+                    style={{background:"transparent",border:"none",color:"var(--red)",cursor:"pointer",fontSize:13}}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Invite form */}
+          {!showInvite ? (
+            <button className="btn btn-outline btn-sm" onClick={()=>setShowInvite(true)}>＋ Invite Team Member</button>
+          ) : (
+            <div style={{padding:12,border:"1.5px dashed var(--inv)",borderRadius:6,marginTop:6}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>Invite Team Member</div>
+              <div className="fg" style={{marginBottom:8}}>
+                <label className="label">Email</label>
+                <input className="input" type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="tech@example.com" autoFocus disabled={busy}/>
+              </div>
+              <div className="fg" style={{marginBottom:8}}>
+                <label className="label">Role</label>
+                <select className="input" value={inviteRole} onChange={e=>setInviteRole(e.target.value)} disabled={busy}>
+                  <option value="tech">Tech — Create & view work orders</option>
+                  <option value="admin">Admin — Manage team & settings</option>
+                  <option value="viewer">Viewer — Read-only access</option>
+                </select>
+              </div>
+              <div className="fg" style={{marginBottom:10}}>
+                <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
+                  <input type="checkbox" checked={inviteInvoice} onChange={e=>setInviteInvoice(e.target.checked)} disabled={busy}/>
+                  Allow this user to push invoices to QuickBooks
+                </label>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button className="btn-text" onClick={()=>setShowInvite(false)} disabled={busy}>Cancel</button>
+                <button className="btn btn-primary btn-sm" onClick={sendInvite} disabled={busy} style={{flex:1}}>
+                  {busy ? "Sending…" : "Send Invite"}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQboChange, onSettingsChange }) {
   const [syncing, setSyncing] = useState(false);
   const [itemCount, setItemCount] = useState(0);
   const [lastSync, setLastSync] = useState("");
+  const [hideRates, setHideRates] = useState(!!settings?.hide_rates_from_techs);
+  const [savingSetting, setSavingSetting] = useState(false);
+  const isAdmin = userRole === "owner" || userRole === "admin";
 
   useEffect(() => {
     loadItemCount();
-    // Listen for QBO callback postMessage
     const handler = (e) => {
       if (e.data?.type === "qbo-connected") {
         onQboChange();
         if (e.data.success) {
-          alert("✅ QuickBooks connected successfully!");
+          // Auto-sync products immediately after connect
+          setTimeout(() => autoSyncAfterConnect(), 1000);
         }
       }
     };
@@ -985,12 +1190,32 @@ function Settings({ tenant, user, qboConnected, onClose, onQboChange }) {
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
-      // Open OAuth in new window
       const w = window.open(data.url, "qbo-oauth", "width=600,height=700");
       if (!w) alert("Please allow popups to connect QuickBooks");
     } catch (e) {
       alert(`Failed to start QBO connection: ${e.message}`);
     }
+  };
+
+  const autoSyncAfterConnect = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-list-items`, {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ tenant_id: tenant.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`✅ QuickBooks connected!\n\n📦 Auto-synced ${data.count} products from your QBO account.`);
+        loadItemCount();
+      } else {
+        alert(`✅ QuickBooks connected!\n\nProduct sync failed: ${data.error}\nYou can re-sync manually below.`);
+      }
+    } catch (e) {
+      alert(`✅ QuickBooks connected!\n\nProduct sync failed: ${e.message}`);
+    }
+    setSyncing(false);
   };
 
   const disconnectQbo = async () => {
@@ -1018,6 +1243,22 @@ function Settings({ tenant, user, qboConnected, onClose, onQboChange }) {
     setSyncing(false);
   };
 
+  const toggleHideRates = async () => {
+    const newVal = !hideRates;
+    setSavingSetting(true);
+    try {
+      const { error } = await supabase.from("tenant_settings")
+        .update({ hide_rates_from_techs: newVal, updated_at: new Date().toISOString() })
+        .eq("tenant_id", tenant.id);
+      if (error) throw error;
+      setHideRates(newVal);
+      onSettingsChange();
+    } catch (e) {
+      alert(`Could not save: ${e.message}`);
+    }
+    setSavingSetting(false);
+  };
+
   const trialDays = tenant.trial_ends_at
     ? Math.max(0, Math.ceil((new Date(tenant.trial_ends_at) - Date.now()) / (1000*60*60*24)))
     : 0;
@@ -1034,15 +1275,14 @@ function Settings({ tenant, user, qboConnected, onClose, onQboChange }) {
         </div>
         <div className="modal-body">
 
-          {/* Company */}
           <div className="settings-section">
             <div className="settings-h">Company</div>
             <div className="kv-row"><span className="k">Name</span><span className="v">{tenant.name}</span></div>
             <div className="kv-row"><span className="k">Industry</span><span className="v">{tenant.industry}</span></div>
             <div className="kv-row"><span className="k">Owner</span><span className="v">{tenant.owner_email}</span></div>
+            <div className="kv-row"><span className="k">Your role</span><span className="v" style={{textTransform:"capitalize"}}>{userRole}</span></div>
           </div>
 
-          {/* Subscription */}
           <div className="settings-section">
             <div className="settings-h">Subscription</div>
             <div className="kv-row"><span className="k">Plan</span><span className="v">{planLabel} — ${planPrice}/mo</span></div>
@@ -1051,10 +1291,25 @@ function Settings({ tenant, user, qboConnected, onClose, onQboChange }) {
             </span></div>
           </div>
 
-          {/* QuickBooks */}
+          {isAdmin && (
+            <div className="settings-section">
+              <div className="settings-h">Pricing Visibility</div>
+              <div className="settings-sub">Control whether technicians can see rates and totals on work orders.</div>
+              <label style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#fafaf6",borderRadius:6,cursor:"pointer"}}>
+                <input type="checkbox" checked={hideRates} onChange={toggleHideRates} disabled={savingSetting} style={{width:18,height:18,cursor:"pointer"}}/>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600}}>Hide rates from technicians</div>
+                  <div style={{fontSize:11,color:"var(--muted)"}}>Techs won't see Rate, Amount, or Totals columns. Owners and admins still see all pricing.</div>
+                </div>
+              </label>
+            </div>
+          )}
+
+          {isAdmin && <TeamSection tenant={tenant} currentUserId={user.id}/>}
+
           <div className="settings-section">
             <div className="settings-h">QuickBooks Online</div>
-            <div className="settings-sub">Connect your QBO company to create invoices from work orders.</div>
+            <div className="settings-sub">Connect your QBO company to create invoices from work orders. Products auto-sync on first connect.</div>
             <div className="qbo-status-card">
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                 <span style={{width:10,height:10,borderRadius:"50%",background:qboConnected?"var(--qb)":"#bdc3c7",boxShadow:qboConnected?"0 0 6px rgba(44,160,28,0.6)":"none"}}/>
@@ -1074,13 +1329,12 @@ function Settings({ tenant, user, qboConnected, onClose, onQboChange }) {
                   <button className="btn btn-outline btn-sm" onClick={syncItems} disabled={syncing}>
                     {syncing ? "Syncing…" : itemCount > 0 ? "🔄 Re-sync Products" : "📥 Sync Products"}
                   </button>
-                  <button className="btn-text" onClick={disconnectQbo} style={{color:"var(--red)"}}>Disconnect</button>
+                  {isAdmin && <button className="btn-text" onClick={disconnectQbo} style={{color:"var(--red)"}}>Disconnect</button>}
                 </>
               )}
             </div>
           </div>
 
-          {/* Support */}
           <div className="settings-section">
             <div className="settings-h">Help & Support</div>
             <div className="settings-sub">Need help? Get in touch with us directly.</div>
@@ -1097,7 +1351,6 @@ function Settings({ tenant, user, qboConnected, onClose, onQboChange }) {
             </div>
           </div>
 
-          {/* Next features */}
           <div className="settings-section">
             <div className="settings-h">Coming Soon</div>
             <div style={{fontSize:13,color:"var(--muted)",lineHeight:1.7}}>
