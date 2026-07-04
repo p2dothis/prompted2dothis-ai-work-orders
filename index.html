@@ -576,7 +576,7 @@ function WorkOrderApp({ user, tenant, userRole }) {
     <div className="app">
       <div className="topbar">
         <div className="topbar-left">
-          <div className="topbar-logo">AI Work Orders</div>
+          <div className="topbar-logo">AI Work Orders <span style={{fontSize:9,opacity:0.55,fontWeight:400}}>v2·pricing</span></div>
           <div className="tenant-name">{tenant.name}</div>
         </div>
         <div className="topbar-right">
@@ -668,6 +668,69 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
+  // ── Price-level integration (autocomplete + auto-price when known) ──
+  const [customers, setCustomers] = useState([]);
+  const [priceLevels, setPriceLevels] = useState([]);
+  const [catalog, setCatalog] = useState([]);
+  const [customerId, setCustomerId] = useState(null);
+  const [tierName, setTierName] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      const [cu, pl, sc, qi, cs] = await Promise.all([
+        supabase.from("customers").select("id,display_name,primary_price_level_id").eq("tenant_id", tenant.id).eq("active", true),
+        supabase.from("price_levels").select("id,name,rank").eq("tenant_id", tenant.id).order("rank"),
+        supabase.from("service_catalog").select("id,name,sku,default_rate").eq("tenant_id", tenant.id),
+        supabase.from("qbo_items").select("id,name,sku,price").eq("tenant_id", tenant.id),
+        supabase.from("custom_skus").select("id,name,sku,price").eq("tenant_id", tenant.id),
+      ]);
+      setCustomers(cu.data || []);
+      setPriceLevels(pl.data || []);
+      const cat = [];
+      (sc.data||[]).forEach(x => cat.push({ source:"service", id:x.id, name:x.name, sku:x.sku, base:Number(x.default_rate)||0 }));
+      (qi.data||[]).forEach(x => cat.push({ source:"qbo", id:x.id, name:x.name, sku:x.sku, base:Number(x.price)||0 }));
+      (cs.data||[]).forEach(x => cat.push({ source:"custom", id:x.id, name:x.name, sku:x.sku, base:Number(x.price)||0 }));
+      setCatalog(cat);
+    })();
+  }, [tenant.id]);
+
+  const findCustomer = (name) => customers.find(c => (c.display_name||"").toLowerCase() === name.trim().toLowerCase());
+  const findItem = (name) => { const q = name.trim().toLowerCase(); return catalog.find(x => (x.name||"").toLowerCase()===q || (x.sku||"").toLowerCase()===q); };
+
+  const resolveRate = async (custId, src, itemId, base) => {
+    if (custId && src && itemId) {
+      const { data } = await supabase.rpc("fn_resolve_price", { p_customer_id: custId, p_item_source: src, p_item_id: itemId });
+      if (data && data[0]) return Number(data[0].final_unit_price);
+    }
+    return base;
+  };
+
+  const onCustomerChange = (name) => {
+    setCustomer(name);
+    const c = findCustomer(name);
+    const cid = c ? c.id : null;
+    setCustomerId(cid);
+    setTierName(c && c.primary_price_level_id ? ((priceLevels.find(p=>p.id===c.primary_price_level_id)||{}).name || "") : "");
+    if (cid) {
+      lines.forEach((l, i) => {
+        if (l.item_source && l.item_id) {
+          resolveRate(cid, l.item_source, l.item_id, l.base_rate!=null?l.base_rate:l.rate)
+            .then(r => setLines(cur => cur.map((x, idx) => idx===i ? { ...x, rate: r } : x)));
+        }
+      });
+    }
+  };
+
+  const onItemChange = async (i, name) => {
+    const item = findItem(name);
+    if (item) {
+      const rate = await resolveRate(customerId, item.source, item.id, item.base);
+      setLines(ls => ls.map((l,idx)=>idx===i ? { ...l, item:name, item_source:item.source, item_id:item.id, base_rate:item.base, rate } : l));
+    } else {
+      setLines(ls => ls.map((l,idx)=>idx===i ? { ...l, item:name, item_source:null, item_id:null } : l));
+    }
+  };
+
   const updateLine = (i, patch) => setLines(ls => ls.map((l,idx)=>idx===i?{...l,...patch}:l));
   const addLine = () => setLines(ls => [...ls, newLine()]);
   const delLine = (i) => setLines(ls => ls.length > 1 ? ls.filter((_,idx)=>idx!==i) : ls);
@@ -691,6 +754,7 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
         tenant_id: tenant.id,
         date,
         customer: customer.trim(),
+        customer_id: customerId,
         technician: technician.trim(),
         lines: validLines,
         status: "open",
@@ -711,7 +775,7 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
       <div className="sheet-h">
         <div>
           <div className="sheet-title">New Work Order</div>
-          <div className="sheet-meta">Fill out like a QuickBooks invoice — save when ready</div>
+          <div className="sheet-meta">Fill out like a QuickBooks invoice — save when ready · <b>{customers.length}</b> customers, <b>{catalog.length}</b> items loaded</div>
         </div>
       </div>
 
@@ -719,8 +783,10 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
 
       <div className="hdr-grid">
         <div className="fg">
-          <label className="label">Customer</label>
-          <input className="input" value={customer} onChange={e=>setCustomer(e.target.value)} placeholder="Customer name" autoFocus/>
+          <label className="label">Customer {tierName && <span style={{color:"var(--brass)",fontWeight:700}}>· {tierName}</span>}</label>
+          <input className="input" value={customer} onChange={e=>onCustomerChange(e.target.value)} placeholder="Customer name" list="pb-cust-list" autoFocus/>
+          <datalist id="pb-cust-list">{customers.map(c=><option key={c.id} value={c.display_name}/>)}</datalist>
+          <datalist id="pb-item-list">{catalog.map(x=><option key={x.source+x.id} value={x.name}/>)}</datalist>
         </div>
         <div className="fg">
           <label className="label">Date</label>
@@ -749,7 +815,7 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
             <tr key={i}>
               <td className="row-num">{i+1}</td>
               <td data-l="Product/Service">
-                <input className="cell-input" value={l.item} onChange={e=>updateLine(i,{item:e.target.value})} placeholder="Service or SKU"/>
+                <input className="cell-input" value={l.item} onChange={e=>onItemChange(i,e.target.value)} placeholder="Service or SKU" list="pb-item-list"/>
               </td>
               <td data-l="Description">
                 <input className="cell-input" value={l.desc} onChange={e=>updateLine(i,{desc:e.target.value})} placeholder="Detail"/>
@@ -877,6 +943,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew }
 function InvoicePush({ wo, qboConnected, user, onDone, onBack }) {
   const [pushing, setPushing] = useState(false);
   const [err, setErr] = useState("");
+  const [posted, setPosted] = useState(null);
 
   if (!wo) return (
     <div className="sheet">
@@ -891,6 +958,7 @@ function InvoicePush({ wo, qboConnected, user, onDone, onBack }) {
 
   const pushToQbo = async () => {
     if (!qboConnected) { setErr("QuickBooks is not connected. Connect it in Settings first."); return; }
+    if (!window.confirm(`Post a LIVE invoice to QuickBooks for ${wo.customer}?\n\nIt will be saved (not sent) so you can review it in QuickBooks before sending.`)) return;
     setErr(""); setPushing(true);
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-create-invoice`, {
@@ -908,12 +976,35 @@ function InvoicePush({ wo, qboConnected, user, onDone, onBack }) {
         invoiced_by: user.email,
       }).eq("id", wo.id);
 
-      onDone();
+      const qboUrl = `https://app.qbo.intuit.com/app/invoice?txnId=${data.invoiceId}`;
+      setPosted({ id: data.invoiceId, num: data.invoiceNum, url: qboUrl });
+      try { window.open(qboUrl, "_blank"); } catch (e) {}
     } catch (e) {
       setErr(e.message);
     }
     setPushing(false);
   };
+
+  if (posted) return (
+    <div className="sheet">
+      <div className="sheet-h">
+        <div>
+          <div className="sheet-title">✅ Invoice Created</div>
+          <div className="sheet-meta">WO #{wo.id} · {wo.customer}</div>
+        </div>
+      </div>
+      <div style={{background:"#eafaf0",border:"1px solid #2ca01c",borderRadius:8,padding:16,marginBottom:16}}>
+        <div style={{fontSize:16,fontWeight:700,marginBottom:4}}>Invoice #{posted.num} saved to QuickBooks</div>
+        <div style={{fontSize:13,color:"var(--muted)"}}>It's saved but <b>not sent</b>. Review it in QuickBooks, then send when you're ready.</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <a className="btn btn-primary" href={posted.url} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none",textAlign:"center"}}>
+          Open Invoice #{posted.num} in QuickBooks →
+        </a>
+        <button className="btn btn-outline" onClick={onDone}>Done — back to work orders</button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="sheet">
