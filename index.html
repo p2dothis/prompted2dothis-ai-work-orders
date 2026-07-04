@@ -271,6 +271,10 @@ body {
 .empty-state-h { font-size: 16px; font-weight: 700; color: var(--ink); margin-bottom: 6px; }
 .empty-state-p { font-size: 13px; max-width: 360px; margin: 0 auto; line-height: 1.5; }
 
+  .ac-menu { position:absolute; top:100%; left:0; right:0; z-index:60; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.16); max-height:240px; overflow-y:auto; margin-top:3px; }
+  .ac-item { padding:11px 12px; font-size:14px; cursor:pointer; border-bottom:1px solid #f0eee6; display:flex; justify-content:space-between; gap:8px; align-items:center; }
+  .ac-item:last-child { border-bottom:0; }
+  .ac-item:hover, .ac-item:active { background:#eef6f1; }
 /* Settings modal */
 .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 20px; }
 .modal { background: #fff; border: 1px solid var(--line); border-radius: 10px; width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; }
@@ -659,7 +663,7 @@ function StepRibbon({ step, setStep, openCount, hasEditing }) {
 
 // ─── STEP 1: CREATE WORK ORDER ───────────────────────────────────────────────
 function CreateWO({ tenant, user, hideRates, onSaved }) {
-  const newLine = () => ({ item: "", desc: "", qty: 1, rate: 0 });
+  const newLine = () => ({ item: "", desc: "", qty: "", rate: 0 });
   const [date, setDate] = useState(today());
   const [customer, setCustomer] = useState("");
   const [technician, setTechnician] = useState("");
@@ -674,6 +678,8 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
   const [catalog, setCatalog] = useState([]);
   const [customerId, setCustomerId] = useState(null);
   const [tierName, setTierName] = useState("");
+  const [custOpen, setCustOpen] = useState(false);
+  const [activeItem, setActiveItem] = useState(-1);
 
   useEffect(() => {
     (async () => {
@@ -696,6 +702,8 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
 
   const findCustomer = (name) => customers.find(c => (c.display_name||"").toLowerCase() === name.trim().toLowerCase());
   const findItem = (name) => { const q = name.trim().toLowerCase(); return catalog.find(x => (x.name||"").toLowerCase()===q || (x.sku||"").toLowerCase()===q); };
+  const custMatches = (customer.trim() ? customers.filter(c => (c.display_name||"").toLowerCase().includes(customer.trim().toLowerCase())) : customers).slice(0, 8);
+  const itemMatches = (val) => { const q = (val||"").trim().toLowerCase(); return (q ? catalog.filter(x => (x.name||"").toLowerCase().includes(q) || (x.sku||"").toLowerCase().includes(q)) : catalog).slice(0, 10); };
 
   const resolveRate = async (custId, src, itemId, base) => {
     if (custId && src && itemId) {
@@ -736,7 +744,8 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
   const delLine = (i) => setLines(ls => ls.length > 1 ? ls.filter((_,idx)=>idx!==i) : ls);
   const clearLines = () => setLines([newLine(), newLine()]);
 
-  const total = useMemo(() => lines.reduce((s,l) => s + (Number(l.qty)||0) * (Number(l.rate)||0), 0), [lines]);
+  const qtyOf = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
+  const total = useMemo(() => lines.reduce((s,l) => s + qtyOf(l) * (Number(l.rate)||0), 0), [lines]);
 
   const save = async () => {
     setErr("");
@@ -756,7 +765,7 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
         customer: customer.trim(),
         customer_id: customerId,
         technician: technician.trim(),
-        lines: validLines,
+        lines: validLines.map(l => ({ ...l, qty: qtyOf(l), rate: Number(l.rate)||0 })),
         status: "open",
         notes,
         created_by: user.id,
@@ -782,11 +791,23 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
       {err && <div className="alert alert-error">{err}</div>}
 
       <div className="hdr-grid">
-        <div className="fg">
+        <div className="fg" style={{position:"relative"}}>
           <label className="label">Customer {tierName && <span style={{color:"var(--brass)",fontWeight:700}}>· {tierName}</span>}</label>
-          <input className="input" value={customer} onChange={e=>onCustomerChange(e.target.value)} placeholder="Customer name" list="pb-cust-list" autoFocus/>
-          <datalist id="pb-cust-list">{customers.map(c=><option key={c.id} value={c.display_name}/>)}</datalist>
-          <datalist id="pb-item-list">{catalog.map(x=><option key={x.source+x.id} value={x.name}/>)}</datalist>
+          <input className="input" value={customer}
+            onChange={e=>{ onCustomerChange(e.target.value); setCustOpen(true); }}
+            onFocus={()=>setCustOpen(true)}
+            onBlur={()=>setTimeout(()=>setCustOpen(false),200)}
+            placeholder="Customer name" autoComplete="off" autoFocus/>
+          {custOpen && custMatches.length>0 && (
+            <div className="ac-menu">
+              {custMatches.map(c=>(
+                <div key={c.id} className="ac-item"
+                  onMouseDown={e=>{ e.preventDefault(); onCustomerChange(c.display_name); setCustOpen(false); }}>
+                  <span>{c.display_name}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="fg">
           <label className="label">Date</label>
@@ -814,19 +835,34 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
           {lines.map((l,i)=>(
             <tr key={i}>
               <td className="row-num">{i+1}</td>
-              <td data-l="Product/Service">
-                <input className="cell-input" value={l.item} onChange={e=>onItemChange(i,e.target.value)} placeholder="Service or SKU" list="pb-item-list"/>
+              <td data-l="Product/Service" style={{position:"relative"}}>
+                <input className="cell-input" value={l.item}
+                  onChange={e=>{ onItemChange(i,e.target.value); setActiveItem(i); }}
+                  onFocus={()=>setActiveItem(i)}
+                  onBlur={()=>setTimeout(()=>setActiveItem(-1),200)}
+                  placeholder="Service or SKU" autoComplete="off"/>
+                {activeItem===i && itemMatches(l.item).length>0 && (
+                  <div className="ac-menu">
+                    {itemMatches(l.item).map(x=>(
+                      <div key={x.source+x.id} className="ac-item"
+                        onMouseDown={e=>{ e.preventDefault(); onItemChange(i, x.name); setActiveItem(-1); }}>
+                        <span>{x.name}</span>
+                        <span style={{color:"var(--muted)",fontSize:11}}>{x.base?("$"+Number(x.base).toFixed(2)):""}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </td>
               <td data-l="Description">
                 <input className="cell-input" value={l.desc} onChange={e=>updateLine(i,{desc:e.target.value})} placeholder="Detail"/>
               </td>
               <td data-l="Qty">
-                <input className="cell-input num" type="number" step="0.01" value={l.qty} onChange={e=>updateLine(i,{qty:e.target.value})}/>
+                <input className="cell-input num" type="number" step="0.01" placeholder="1" value={l.qty} onFocus={e=>e.target.select()} onChange={e=>updateLine(i,{qty:e.target.value})}/>
               </td>
               {!hideRates && <td data-l="Rate">
                 <input className="cell-input num" type="number" step="0.01" value={l.rate} onChange={e=>updateLine(i,{rate:e.target.value})}/>
               </td>}
-              {!hideRates && <td data-l="Amount" className="cell-amount">{fmt$((Number(l.qty)||0)*(Number(l.rate)||0))}</td>}
+              {!hideRates && <td data-l="Amount" className="cell-amount">{fmt$(qtyOf(l)*(Number(l.rate)||0))}</td>}
               <td className="row-del"><button onClick={()=>delLine(i)} title="Delete">✕</button></td>
             </tr>
           ))}
