@@ -444,7 +444,7 @@ function SignUp({ onSwitchSignin, onBack }) {
   const [email,setEmail]=useState(""); const [password,setPassword]=useState("");
   const [err,setErr]=useState(""); const [success,setSuccess]=useState(false); const [loading,setLoading]=useState(false);
   const submit=async e=>{e.preventDefault();setErr("");setLoading(true);
-    const {error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin}});
+    const {error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin+window.location.pathname}});
     if(error)setErr(error.message); else setSuccess(true); setLoading(false);};
   if(success) return (
     <div className="auth-wrap"><div className="auth-card">
