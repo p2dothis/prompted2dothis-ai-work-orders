@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-<title>AI Work Orders</title>
+<title>P2 Invoicing</title>
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="manifest" href="manifest.json">
@@ -401,7 +401,7 @@ function Landing({ onSignup, onSignin }) {
   return (
     <div className="landing">
       <div className="landing-hero">
-        <div className="landing-logo">AI Work Orders</div>
+        <div className="landing-logo">P2 Invoicing</div>
         <div className="landing-tag">By Prompted To Do This</div>
         <h1 className="landing-h1">Work orders that flow directly to QuickBooks.</h1>
         <p className="landing-sub">Stop double-entering data. Create work orders in the field, auto-sync to QuickBooks invoices, get paid faster.</p>
@@ -423,7 +423,7 @@ function SignIn({ onSwitchSignup, onBack }) {
     if(error)setErr(error.message); setLoading(false);};
   return (
     <div className="auth-wrap"><div className="auth-card">
-      <div className="auth-logo">AI Work Orders</div>
+      <div className="auth-logo">P2 Invoicing</div>
       <div className="auth-tag">By Prompted To Do This</div>
       <h2 className="auth-h2">Welcome back</h2>
       <p className="auth-sub">Sign in to your account</p>
@@ -448,14 +448,14 @@ function SignUp({ onSwitchSignin, onBack }) {
     if(error)setErr(error.message); else setSuccess(true); setLoading(false);};
   if(success) return (
     <div className="auth-wrap"><div className="auth-card">
-      <div className="auth-logo">AI Work Orders</div>
+      <div className="auth-logo">P2 Invoicing</div>
       <div className="auth-tag">By Prompted To Do This</div>
       <div className="alert alert-success"><strong>Check your email!</strong> We sent a confirmation link to <strong>{email}</strong>. Click it to verify, then sign in.</div>
       <button className="btn btn-primary btn-full" onClick={onSwitchSignin}>Go to Sign In</button>
     </div></div>);
   return (
     <div className="auth-wrap"><div className="auth-card">
-      <div className="auth-logo">AI Work Orders</div>
+      <div className="auth-logo">P2 Invoicing</div>
       <div className="auth-tag">By Prompted To Do This</div>
       <h2 className="auth-h2">Create your account</h2>
       <p className="auth-sub">Start your free 14-day trial. No credit card required.</p>
@@ -489,7 +489,7 @@ function SetupWizard({ user, onComplete }) {
   const next=()=>{if(step===1&&!companyName.trim()){setErr("Company name is required");return;}setErr("");setStep(step+1);};
   return (
     <div className="auth-wrap"><div className="auth-card" style={{maxWidth:460}}>
-      <div className="auth-logo">Welcome to AI Work Orders</div>
+      <div className="auth-logo">Welcome to P2 Invoicing</div>
       <div className="auth-tag">Let's get you set up — 2 minutes</div>
       <div className="wizard-steps">
         <div className={`wizard-step ${step>=1?"active":""} ${step>1?"done":""}`}/>
@@ -539,7 +539,7 @@ function SetupWizard({ user, onComplete }) {
           <div style={{fontSize:13,marginBottom:6}}><strong>Plan:</strong> {PLANS.find(p=>p.id===plan)?.name} — ${PLANS.find(p=>p.id===plan)?.price}/mo</div>
           <div style={{fontSize:12,color:"var(--muted)",marginTop:8}}>14-day free trial. Cancel anytime.</div>
         </div>
-        <button className="btn btn-primary btn-full" onClick={finish} disabled={loading}>{loading?"Setting up…":"Create my AI Work Orders account"}</button>
+        <button className="btn btn-primary btn-full" onClick={finish} disabled={loading}>{loading?"Setting up…":"Create my P2 Invoicing account"}</button>
         <div className="auth-foot"><button className="btn-link" onClick={()=>setStep(2)}>← Back</button></div>
       </>}
     </div></div>);
@@ -587,7 +587,7 @@ function WorkOrderApp({ user, tenant, userRole }) {
     <div className="app">
       <div className="topbar">
         <div className="topbar-left">
-          <div className="topbar-logo">AI Work Orders <span style={{fontSize:9,opacity:0.55,fontWeight:400}}>v2·pricing</span></div>
+          <div className="topbar-logo">P2 Invoicing <span style={{fontSize:9,opacity:0.55,fontWeight:400}}>v2·pricing</span></div>
           <div className="tenant-name">{tenant.name}</div>
         </div>
         <div className="topbar-right">
