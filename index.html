@@ -1307,37 +1307,44 @@ function PriceBook({ tenant }) {
   const [msg, setMsg] = useState("");
   const flash = (m) => { setMsg(m); setTimeout(()=>setMsg(""), 2800); };
   const money = n => (n==null||n==="")?"":Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const keyOf = (it) => it.source + ":" + it.id;
 
   const load = async () => {
     setLoading(true);
-    const [lv, it, pli, cu] = await Promise.all([
+    const [lv, qi, cs, pli, cu] = await Promise.all([
       supabase.from("price_levels").select("id,name,rank").eq("tenant_id",tenant.id).order("rank"),
+      supabase.from("qbo_items").select("id,sku,name,price").eq("tenant_id",tenant.id).order("name"),
       supabase.from("custom_skus").select("id,sku,name,price").eq("tenant_id",tenant.id).order("name"),
-      supabase.from("price_level_items").select("price_level_id,item_id,override_value").eq("tenant_id",tenant.id).eq("item_source","custom"),
+      supabase.from("price_level_items").select("price_level_id,item_id,item_source,override_value").eq("tenant_id",tenant.id),
       supabase.from("customers").select("id,display_name,primary_price_level_id").eq("tenant_id",tenant.id).order("display_name"),
     ]);
-    setLevels(lv.data||[]); setItems(it.data||[]); setCustomers(cu.data||[]);
-    const c={}; (pli.data||[]).forEach(p=>{ (c[p.item_id]=c[p.item_id]||{})[p.price_level_id]=p.override_value; }); setCells(c);
+    const its = [];
+    (qi.data||[]).forEach(x => its.push({ ...x, source:"qbo" }));
+    (cs.data||[]).forEach(x => its.push({ ...x, source:"custom" }));
+    setLevels(lv.data||[]); setItems(its); setCustomers(cu.data||[]);
+    const c={}; (pli.data||[]).forEach(p=>{ const k=(p.item_source||"custom")+":"+p.item_id; (c[k]=c[k]||{})[p.price_level_id]=p.override_value; }); setCells(c);
     setRk(x=>x+1); setLoading(false);
   };
   useEffect(()=>{ load(); }, [tenant.id]);
 
-  const saveCell = async (itemId, plId, val) => {
+  const saveCell = async (item, plId, val) => {
+    const k = keyOf(item);
     const raw = String(val).trim().replace(/[^0-9.\-]/g,"");
     if (raw==="") {
-      await supabase.from("price_level_items").delete().match({price_level_id:plId,item_id:itemId,item_source:"custom"});
-      setCells(c=>{ const n={...c}; if(n[itemId]){ n[itemId]={...n[itemId]}; delete n[itemId][plId]; } return n; });
+      await supabase.from("price_level_items").delete().match({tenant_id:tenant.id,price_level_id:plId,item_id:item.id,item_source:item.source});
+      setCells(c=>{ const n={...c}; if(n[k]){ n[k]={...n[k]}; delete n[k][plId]; } return n; });
     } else {
       const v=parseFloat(raw);
-      await supabase.from("price_level_items").upsert({tenant_id:tenant.id,price_level_id:plId,item_id:itemId,item_source:"custom",override_mode:"custom",override_value:v},{onConflict:"price_level_id,item_source,item_id"});
-      setCells(c=>({...c,[itemId]:{...(c[itemId]||{}),[plId]:v}}));
+      await supabase.from("price_level_items").upsert({tenant_id:tenant.id,price_level_id:plId,item_id:item.id,item_source:item.source,override_mode:"custom",override_value:v},{onConflict:"price_level_id,item_source,item_id"});
+      setCells(c=>({...c,[k]:{...(c[k]||{}),[plId]:v}}));
     }
     flash("Saved");
   };
-  const saveBase = async (itemId, val) => {
+  const saveBase = async (item, val) => {
     const v=parseFloat(String(val).replace(/[^0-9.\-]/g,""))||0;
-    await supabase.from("custom_skus").update({price:v}).eq("id",itemId);
-    setItems(its=>its.map(i=>i.id===itemId?{...i,price:v}:i)); flash("Base saved");
+    const table = item.source==="qbo" ? "qbo_items" : "custom_skus";
+    await supabase.from(table).update({price:v}).eq("id",item.id);
+    setItems(its=>its.map(i=>(i.source===item.source&&i.id===item.id)?{...i,price:v}:i)); flash("Base saved");
   };
   const setTier = async (custId, plId) => {
     const v = plId || null;
@@ -1382,14 +1389,14 @@ function PriceBook({ tenant }) {
         const {data}=await supabase.from("price_levels").select("id,name,rank").eq("tenant_id",tenant.id).order("rank"); lv=data||[];
       }
       const rankToId={}; lv.forEach(l=>rankToId[l.rank]=l.id);
-      let cur=[...items]; let n=0;
+      let cur=items.filter(i=>i.source==="custom"); let n=0;
       for(const row of impRows){
         const name=String(row[mName]??"").trim(); if(!name) continue;
         const sku=mSku?String(row[mSku]??"").trim():name;
         const base=mBase?(parseFloat(row[mBase])||0):0;
         let itemId; const ex=cur.find(i=>i.sku===sku);
         if(ex){ itemId=ex.id; await supabase.from("custom_skus").update({name,price:base}).eq("id",itemId); }
-        else { const {data,error}=await supabase.from("custom_skus").insert({tenant_id:tenant.id,sku,name,price:base,item_group:"Imported"}).select("id").single(); if(error) throw error; itemId=data.id; cur.push({id:itemId,sku,name,price:base}); }
+        else { const {data,error}=await supabase.from("custom_skus").insert({tenant_id:tenant.id,sku,name,price:base,item_group:"Imported"}).select("id").single(); if(error) throw error; itemId=data.id; cur.push({id:itemId,sku,name,price:base,source:"custom"}); }
         const pr=[];
         cols.forEach((col,idx)=>{ const v=row[col]; if(v!==null&&v!==""&&!isNaN(parseFloat(v))) pr.push({tenant_id:tenant.id,price_level_id:rankToId[idx+1],item_id:itemId,item_source:"custom",override_mode:"custom",override_value:parseFloat(v)}); });
         if(pr.length) await supabase.from("price_level_items").upsert(pr,{onConflict:"price_level_id,item_source,item_id"});
@@ -1449,21 +1456,21 @@ function PriceBook({ tenant }) {
               {levels.map(l=>(<th key={l.id} style={{position:"sticky",top:0,background:"#fafaf6",padding:"8px 6px",fontSize:11,color:"var(--muted)",borderBottom:"1px solid var(--line)",borderRight:"1px solid var(--line)",whiteSpace:"nowrap"}}>{l.name.replace("Price Level","PL")}</th>))}
             </tr></thead>
             <tbody>
-              {items.map(it=>(
-                <tr key={it.id}>
+              {items.map(it=>{ const k=keyOf(it); return (
+                <tr key={k}>
                   <td style={{position:"sticky",left:0,zIndex:1,background:"#fff",padding:"6px 8px",borderBottom:"1px solid #eee",borderRight:"1px solid var(--line)",minWidth:150}}>
                     <div style={{fontWeight:600,whiteSpace:"nowrap"}}>{it.name}</div>
-                    <div style={{fontSize:10,color:"var(--muted)"}}>{it.sku} · base <input defaultValue={money(it.price)} onBlur={e=>saveBase(it.id,e.target.value)} inputMode="decimal" style={{width:54,border:"1px solid #eee",borderRadius:4,fontSize:11,textAlign:"right",fontFamily:"monospace",padding:"1px 3px"}}/></div>
+                    <div style={{fontSize:10,color:"var(--muted)"}}>{it.sku} · base <input defaultValue={money(it.price)} onBlur={e=>saveBase(it,e.target.value)} inputMode="decimal" style={{width:54,border:"1px solid #eee",borderRadius:4,fontSize:11,textAlign:"right",fontFamily:"monospace",padding:"1px 3px"}}/></div>
                   </td>
                   {levels.map(l=>(
                     <td key={l.id} style={{borderBottom:"1px solid #eee",borderRight:"1px solid var(--line)"}}>
-                      <input defaultValue={cells[it.id]&&cells[it.id][l.id]!=null?money(cells[it.id][l.id]):""} placeholder="·"
-                        onBlur={e=>saveCell(it.id,l.id,e.target.value)} inputMode="decimal"
+                      <input defaultValue={cells[k]&&cells[k][l.id]!=null?money(cells[k][l.id]):""} placeholder="·"
+                        onBlur={e=>saveCell(it,l.id,e.target.value)} inputMode="decimal"
                         style={{width:62,border:"1px solid transparent",background:"transparent",fontFamily:"monospace",fontSize:13,textAlign:"right",padding:"7px 5px"}}/>
                     </td>
                   ))}
                 </tr>
-              ))}
+              ); })}
             </tbody>
           </table>
         </div>
