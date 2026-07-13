@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Create Bait Loss Item</title>
+<style>
+  :root { --bg:#0f1720; --card:#17212b; --line:#2a3947; --txt:#e7eef5; --muted:#8ea3b5;
+          --teal:#3db8c1; --green:#2ea56b; --red:#d9534f; --amber:#d9a441; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         padding:max(16px,env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); }
+  .wrap { max-width:520px; margin:0 auto; }
+  h1 { font-size:20px; margin:8px 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 18px; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px; }
+  label { display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
+  input { width:100%; background:#0c141c; border:1px solid var(--line); color:var(--txt);
+          border-radius:10px; padding:11px 12px; font-size:15px; font-family:ui-monospace,Menlo,monospace; }
+  button { width:100%; border:0; border-radius:12px; padding:15px; font-size:17px; font-weight:600;
+           color:#04222a; background:var(--teal); margin-top:4px; }
+  button:active { filter:brightness(.9); }
+  button:disabled { opacity:.55; }
+  .verdict { border-radius:12px; padding:13px 14px; margin:14px 0 10px; font-weight:600; display:none; }
+  .verdict.show { display:block; }
+  .verdict.ok { background:rgba(46,165,107,.15); border:1px solid var(--green); color:#a8e6c4; }
+  .verdict.bad { background:rgba(217,83,79,.15); border:1px solid var(--red); color:#f2b6b4; }
+  .verdict.warn { background:rgba(217,164,65,.15); border:1px solid var(--amber); color:#f0d69a; }
+  pre { background:#0c141c; border:1px solid var(--line); border-radius:10px; padding:12px;
+        overflow:auto; font-size:12.5px; white-space:pre-wrap; word-break:break-word; margin:10px 0 0; min-height:40px; }
+  .row { display:flex; gap:8px; }
+  .row button { flex:1; margin-top:10px; }
+  .ghost { background:transparent; color:var(--teal); border:1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Create Bait Loss Item</h1>
+  <p class="sub">Points a "Bait Loss" service item at your Cost of Goods Sold account so loss lines post to COGS.</p>
+
+  <div class="card">
+    <label for="tenant">Tenant ID</label>
+    <input id="tenant" value="6284b3b6-bc07-4040-a7f4-973238ae2b7f" spellcheck="false" autocapitalize="off">
+    <button id="go">Create Bait Loss item</button>
+  </div>
+
+  <div id="verdict" class="verdict"></div>
+  <div class="card" id="resultCard" style="display:none">
+    <label>Response JSON</label>
+    <pre id="out"></pre>
+    <div class="row">
+      <button class="ghost" id="copy">Copy JSON</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const ENDPOINT = "https://attneiceahozrxiiybis.supabase.co/functions/v1/qbo-create-loss-item";
+  const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF0dG5laWNlYWhvenJ4aWl5YmlzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyNjUzMjksImV4cCI6MjA5Nzg0MTMyOX0.59Ln0cxUtmRT51L1jgKZcB5jceN53DatH3rRtx64tKg";
+
+  const btn = document.getElementById("go");
+  const out = document.getElementById("out");
+  const card = document.getElementById("resultCard");
+  const verdict = document.getElementById("verdict");
+  let lastJson = "";
+
+  function setVerdict(kind, msg) {
+    verdict.className = "verdict show " + kind;
+    verdict.textContent = msg;
+  }
+
+  btn.addEventListener("click", async () => {
+    const tenant_id = document.getElementById("tenant").value.trim();
+    btn.disabled = true; btn.textContent = "Working…";
+    verdict.className = "verdict"; card.style.display = "none";
+    try {
+      const res = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": ANON, "Authorization": "Bearer " + ANON },
+        body: JSON.stringify({ tenant_id })
+      });
+      const data = await res.json();
+      lastJson = JSON.stringify(data, null, 2);
+      out.textContent = lastJson; card.style.display = "block";
+
+      if (data.success && (data.created || data.exists)) {
+        const acct = data.cogs_account ? (" → " + data.cogs_account.name) : "";
+        setVerdict("ok", "Success. Bait Loss item is set" + acct + ". Loss lines will now post to COGS.");
+      } else if (data.qbo_rejected) {
+        setVerdict("bad", "QBO refused COGS in the income slot. Send me this JSON — I'll switch to the fallback.");
+      } else if (data.needs_selection) {
+        setVerdict("warn", "More than one COGS account found. Send me this JSON so I can pick the right one.");
+      } else {
+        setVerdict("bad", "Didn't complete. Send me this JSON and I'll take it from here.");
+      }
+    } catch (e) {
+      lastJson = String(e);
+      out.textContent = lastJson; card.style.display = "block";
+      setVerdict("bad", "Request failed: " + e.message + ". Send me this and I'll check.");
+    } finally {
+      btn.disabled = false; btn.textContent = "Create Bait Loss item";
+    }
+  });
+
+  document.getElementById("copy").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(lastJson);
+      document.getElementById("copy").textContent = "Copied ✓";
+      setTimeout(() => document.getElementById("copy").textContent = "Copy JSON", 1500);
+    } catch (_) {}
+  });
+</script>
+</body>
+</html>
