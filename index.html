@@ -3,18 +3,18 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-<title>P2 Invoicing</title>
-<link rel="apple-touch-icon" href="icon-180.png">
-<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="manifest" href="manifest.json">
-<meta name="apple-mobile-web-app-title" content="P2 Invoicing">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#7C3AED">
+  <link rel="apple-touch-icon" href="data:image/png;base64,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">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Work Orders">
+
+<title>AI Work Orders</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -401,7 +401,7 @@ function Landing({ onSignup, onSignin }) {
   return (
     <div className="landing">
       <div className="landing-hero">
-        <div className="landing-logo">P2 Invoicing</div>
+        <div className="landing-logo">AI Work Orders</div>
         <div className="landing-tag">By Prompted To Do This</div>
         <h1 className="landing-h1">Work orders that flow directly to QuickBooks.</h1>
         <p className="landing-sub">Stop double-entering data. Create work orders in the field, auto-sync to QuickBooks invoices, get paid faster.</p>
@@ -423,7 +423,7 @@ function SignIn({ onSwitchSignup, onBack }) {
     if(error)setErr(error.message); setLoading(false);};
   return (
     <div className="auth-wrap"><div className="auth-card">
-      <div className="auth-logo">P2 Invoicing</div>
+      <div className="auth-logo">AI Work Orders</div>
       <div className="auth-tag">By Prompted To Do This</div>
       <h2 className="auth-h2">Welcome back</h2>
       <p className="auth-sub">Sign in to your account</p>
@@ -444,18 +444,18 @@ function SignUp({ onSwitchSignin, onBack }) {
   const [email,setEmail]=useState(""); const [password,setPassword]=useState("");
   const [err,setErr]=useState(""); const [success,setSuccess]=useState(false); const [loading,setLoading]=useState(false);
   const submit=async e=>{e.preventDefault();setErr("");setLoading(true);
-    const {error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin+window.location.pathname}});
+    const {error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin}});
     if(error)setErr(error.message); else setSuccess(true); setLoading(false);};
   if(success) return (
     <div className="auth-wrap"><div className="auth-card">
-      <div className="auth-logo">P2 Invoicing</div>
+      <div className="auth-logo">AI Work Orders</div>
       <div className="auth-tag">By Prompted To Do This</div>
       <div className="alert alert-success"><strong>Check your email!</strong> We sent a confirmation link to <strong>{email}</strong>. Click it to verify, then sign in.</div>
       <button className="btn btn-primary btn-full" onClick={onSwitchSignin}>Go to Sign In</button>
     </div></div>);
   return (
     <div className="auth-wrap"><div className="auth-card">
-      <div className="auth-logo">P2 Invoicing</div>
+      <div className="auth-logo">AI Work Orders</div>
       <div className="auth-tag">By Prompted To Do This</div>
       <h2 className="auth-h2">Create your account</h2>
       <p className="auth-sub">Start your free 14-day trial. No credit card required.</p>
@@ -489,7 +489,7 @@ function SetupWizard({ user, onComplete }) {
   const next=()=>{if(step===1&&!companyName.trim()){setErr("Company name is required");return;}setErr("");setStep(step+1);};
   return (
     <div className="auth-wrap"><div className="auth-card" style={{maxWidth:460}}>
-      <div className="auth-logo">Welcome to P2 Invoicing</div>
+      <div className="auth-logo">Welcome to AI Work Orders</div>
       <div className="auth-tag">Let's get you set up — 2 minutes</div>
       <div className="wizard-steps">
         <div className={`wizard-step ${step>=1?"active":""} ${step>1?"done":""}`}/>
@@ -539,7 +539,7 @@ function SetupWizard({ user, onComplete }) {
           <div style={{fontSize:13,marginBottom:6}}><strong>Plan:</strong> {PLANS.find(p=>p.id===plan)?.name} — ${PLANS.find(p=>p.id===plan)?.price}/mo</div>
           <div style={{fontSize:12,color:"var(--muted)",marginTop:8}}>14-day free trial. Cancel anytime.</div>
         </div>
-        <button className="btn btn-primary btn-full" onClick={finish} disabled={loading}>{loading?"Setting up…":"Create my P2 Invoicing account"}</button>
+        <button className="btn btn-primary btn-full" onClick={finish} disabled={loading}>{loading?"Setting up…":"Create my AI Work Orders account"}</button>
         <div className="auth-foot"><button className="btn-link" onClick={()=>setStep(2)}>← Back</button></div>
       </>}
     </div></div>);
@@ -587,7 +587,7 @@ function WorkOrderApp({ user, tenant, userRole }) {
     <div className="app">
       <div className="topbar">
         <div className="topbar-left">
-          <div className="topbar-logo">P2 Invoicing <span style={{fontSize:9,opacity:0.55,fontWeight:400}}>v2·pricing</span></div>
+          <div className="topbar-logo">AI Work Orders <span style={{fontSize:9,opacity:0.55,fontWeight:400}}>v2·pricing</span></div>
           <div className="tenant-name">{tenant.name}</div>
         </div>
         <div className="topbar-right">
@@ -625,6 +625,7 @@ function WorkOrderApp({ user, tenant, userRole }) {
             loading={loading}
             onPickInvoice={(wo) => { setEditingWO(wo); setStep(3); }}
             onCreateNew={() => setStep(1)}
+            onEditInvoiced={(wo) => { setEditingWO(wo); setStep(5); }}
           />
         )}
 
@@ -639,6 +640,15 @@ function WorkOrderApp({ user, tenant, userRole }) {
         )}
 
         {step === 4 && <PriceBook tenant={tenant} />}
+
+        {step === 5 && (
+          <CreateWO
+            tenant={tenant} user={user} hideRates={hideRates}
+            editing={editingWO}
+            onUpdated={(data) => { loadWOs(); setEditingWO(null); setStep(2); if (data && data.invoiceUrl) { try { window.open(data.invoiceUrl, "_blank"); } catch(e){} } }}
+            onSaved={() => { loadWOs(); setStep(2); }}
+          />
+        )}
       </div>
     </div>
   );
@@ -676,13 +686,13 @@ function StepRibbon({ step, setStep, openCount, hasEditing }) {
 }
 
 // ─── STEP 1: CREATE WORK ORDER ───────────────────────────────────────────────
-function CreateWO({ tenant, user, hideRates, onSaved }) {
+function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
   const newLine = () => ({ item: "", desc: "", qty: "", rate: 0 });
-  const [date, setDate] = useState(today());
-  const [customer, setCustomer] = useState("");
-  const [technician, setTechnician] = useState("");
-  const [lines, setLines] = useState([newLine(), newLine()]);
-  const [notes, setNotes] = useState("");
+  const [date, setDate] = useState(editing?.date || today());
+  const [customer, setCustomer] = useState(editing?.customer || "");
+  const [technician, setTechnician] = useState(editing?.technician || "");
+  const [lines, setLines] = useState(editing?.lines?.length ? editing.lines.map(l=>({...l})) : [newLine(), newLine()]);
+  const [notes, setNotes] = useState(editing?.notes || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -706,6 +716,10 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
       ]);
       setCustomers(cu.data || []);
       setPriceLevels(pl.data || []);
+      if (editing && editing.customer) {
+        const ec = (cu.data||[]).find(x => (x.display_name||"").toLowerCase() === editing.customer.trim().toLowerCase());
+        if (ec) { setCustomerId(ec.id); const et=(pl.data||[]).find(p=>p.id===ec.primary_price_level_id); setTierName(et?et.name:""); }
+      }
       const cat = [];
       (sc.data||[]).forEach(x => cat.push({ source:"service", id:x.id, name:x.name, sku:x.sku, base:Number(x.default_rate)||0 }));
       (qi.data||[]).forEach(x => cat.push({ source:"qbo", id:x.id, name:x.name, sku:x.sku, base:Number(x.price)||0 }));
@@ -767,10 +781,28 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
     const validLines = lines.filter(l => l.item.trim() || l.desc.trim() || Number(l.qty) || Number(l.rate));
     if (validLines.length === 0) { setErr("Add at least one line item"); return; }
 
+    const newLines = validLines.map(l => ({ ...l, qty: qtyOf(l), rate: Number(l.rate)||0 }));
+
+    if (editing) {
+      setSaving(true);
+      try {
+        await supabase.from("work_orders").update({ customer: customer.trim(), customer_id: customerId, date, lines: newLines, notes }).eq("id", editing.id);
+        const { data, error } = await supabase.functions.invoke("qbo-update-invoice", {
+          body: { invoice_id: editing.invoice_qbo_id, tenant_id: tenant.id, wo: { ...editing, customer: customer.trim(), date, lines: newLines } },
+        });
+        if (error) throw new Error(error.message);
+        if (!data || !data.success) throw new Error((data && data.error) || "Update failed");
+        onUpdated && onUpdated(data);
+      } catch (e) { setErr(e.message); }
+      setSaving(false);
+      return;
+    }
+
     setSaving(true);
     try {
-      const next = (tenant.next_wo_number || 1000);
-      const woId = String(next);
+      const { data: num, error: numErr } = await supabase.rpc("fn_next_wo_number", { p_tenant_id: tenant.id });
+      if (numErr) throw numErr;
+      const woId = String(num);
 
       const { error } = await supabase.from("work_orders").insert({
         id: woId,
@@ -779,13 +811,12 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
         customer: customer.trim(),
         customer_id: customerId,
         technician: technician.trim(),
-        lines: validLines.map(l => ({ ...l, qty: qtyOf(l), rate: Number(l.rate)||0 })),
+        lines: newLines,
         status: "open",
         notes,
         created_by: user.id,
       });
       if (error) throw error;
-      await supabase.from("tenants").update({ next_wo_number: next + 1 }).eq("id", tenant.id);
       onSaved();
     } catch (e) {
       setErr(e.message);
@@ -797,8 +828,8 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
     <div className="sheet">
       <div className="sheet-h">
         <div>
-          <div className="sheet-title">New Work Order</div>
-          <div className="sheet-meta">Fill out like a QuickBooks invoice — save when ready · <b>{customers.length}</b> customers, <b>{catalog.length}</b> items loaded</div>
+          <div className="sheet-title">{editing ? `Edit Invoice #${editing.invoice_no || editing.id}` : "New Work Order"}</div>
+          <div className="sheet-meta">{editing ? "Change lines or rates, then update the QuickBooks invoice" : <>Fill out like a QuickBooks invoice — save when ready · <b>{customers.length}</b> customers, <b>{catalog.length}</b> items loaded</>}</div>
         </div>
       </div>
 
@@ -904,19 +935,67 @@ function CreateWO({ tenant, user, hideRates, onSaved }) {
 
       <div className="action-bar">
         <button className="btn btn-primary" onClick={save} disabled={saving}>
-          {saving ? "Saving…" : "Save Work Order"}
+          {editing ? (saving ? "Updating…" : "Update QuickBooks Invoice") : (saving ? "Saving…" : "Save Work Order")}
         </button>
       </div>
     </div>
   );
 }
 
+// ─── PRINTER + PDF ───────────────────────────────────────────────────────────
+const PRINTER_EMAIL = "dprr437jdkh86@hpeprint.com";
+function buildWoPdf(wo, hideRates){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const lines = wo.lines || [];
+  doc.setFontSize(18); doc.setFont(undefined,"bold");
+  doc.text("WORK ORDER", 14, 20);
+  doc.setFontSize(12); doc.text("#"+wo.id, 196, 20, {align:"right"});
+  doc.setFontSize(10); doc.setFont(undefined,"normal");
+  doc.text("Customer: "+(wo.customer||""), 14, 32);
+  doc.text("Date: "+(wo.date||"")+"     Tech: "+(wo.technician||"—"), 14, 38);
+  doc.line(14, 44, 196, 44);
+  let y = 52;
+  doc.setFont(undefined,"bold");
+  doc.text("Qty", 14, y); doc.text("Item", 32, y);
+  if(!hideRates){ doc.text("Rate", 168, y, {align:"right"}); doc.text("Amount", 196, y, {align:"right"}); }
+  y += 2; doc.line(14, y, 196, y); y += 7; doc.setFont(undefined,"normal");
+  let total = 0;
+  for(const l of lines){
+    const qty = (l.qty===""||l.qty==null)?1:(Number(l.qty)||0);
+    const amt = qty*(Number(l.rate)||0); total += amt;
+    doc.text(String(qty), 14, y);
+    const label = String(l.item||"") + (l.desc ? (" — "+l.desc) : "");
+    const wrapped = doc.splitTextToSize(label, 128);
+    doc.text(wrapped, 32, y);
+    if(!hideRates){ doc.text(fmt$(Number(l.rate)||0), 168, y, {align:"right"}); doc.text(fmt$(amt), 196, y, {align:"right"}); }
+    y += 6 + (wrapped.length-1)*5;
+    if(y > 270){ doc.addPage(); y = 20; }
+  }
+  if(!hideRates){ y += 3; doc.line(150, y, 196, y); y += 7; doc.setFont(undefined,"bold"); doc.text("TOTAL", 150, y, {align:"right"}); doc.text(fmt$(total), 196, y, {align:"right"}); }
+  if(wo.notes){ y += 12; doc.setFont(undefined,"normal"); doc.setFontSize(9); doc.text(doc.splitTextToSize("Notes: "+wo.notes, 182), 14, y); }
+  return doc.output("datauristring").split("base64,")[1];
+}
+
 // ─── STEP 2: OPEN WO LIST ────────────────────────────────────────────────────
-function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew }) {
+function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced }) {
   const open = workOrders.filter(w => w.status === "open");
   const recent = workOrders.filter(w => w.status === "invoiced").slice(0, 5);
 
   const woTotal = (wo) => (wo.lines || []).reduce((s,l) => s + (Number(l.qty)||0)*(Number(l.rate)||0), 0);
+
+  const [printMsg, setPrintMsg] = useState("");
+  const doPrint = async (wo) => {
+    try {
+      setPrintMsg("Sending WO #"+wo.id+" to the printer…");
+      const pdf = buildWoPdf(wo, hideRates);
+      const { data, error } = await supabase.functions.invoke("email-print", { body: { to: PRINTER_EMAIL, subject:"Work Order #"+wo.id+" — "+wo.customer, filename:"WO-"+wo.id+".pdf", pdf_base64: pdf } });
+      if (error) throw new Error(error.message);
+      if (data && data.error) throw new Error(typeof data.error==="string"?data.error:JSON.stringify(data.error));
+      setPrintMsg("✓ Sent WO #"+wo.id+" to the printer");
+    } catch(e) { setPrintMsg("Print failed: "+e.message); }
+    setTimeout(()=>setPrintMsg(""), 5000);
+  };
 
   if (loading) return <div className="sheet"><div className="empty-state">Loading…</div></div>;
 
@@ -930,6 +1009,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew }
           </div>
           <button className="btn btn-primary btn-sm" onClick={onCreateNew}>＋ New</button>
         </div>
+        {printMsg && <div style={{background:"#eef6f1",border:"1px solid #2ca01c",borderRadius:6,padding:"8px 12px",margin:"0 0 10px",fontSize:13}}>{printMsg}</div>}
 
         {open.length === 0 ? (
           <div className="empty-state">
@@ -951,6 +1031,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew }
                 {!hideRates && <div className="wo-amt">{fmt$(woTotal(wo))}</div>}
                 <span className="wo-pill open">Open</span>
                 <div className="wo-actions">
+                  <button className="btn btn-outline btn-sm" onClick={()=>doPrint(wo)}>🖨 Print</button>
                   <button className="btn btn-outline btn-sm" onClick={()=>onPickInvoice(wo)}>
                     <span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:"var(--red)"}}/>
                     Create Invoice
@@ -980,6 +1061,9 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew }
               <div className="wo-meta-r">
                 {!hideRates && <div className="wo-amt">{fmt$(woTotal(wo))}</div>}
                 <span className="wo-pill invoiced">Invoiced</span>
+                <div className="wo-actions">
+                  <button className="btn btn-outline btn-sm" onClick={()=>onEditInvoiced(wo)}>✎ Edit</button>
+                </div>
               </div>
             </div>
           ))}
@@ -1307,44 +1391,40 @@ function PriceBook({ tenant }) {
   const [msg, setMsg] = useState("");
   const flash = (m) => { setMsg(m); setTimeout(()=>setMsg(""), 2800); };
   const money = n => (n==null||n==="")?"":Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
-  const keyOf = (it) => it.source + ":" + it.id;
 
   const load = async () => {
     setLoading(true);
     const [lv, qi, cs, pli, cu] = await Promise.all([
       supabase.from("price_levels").select("id,name,rank").eq("tenant_id",tenant.id).order("rank"),
-      supabase.from("qbo_items").select("id,sku,name,price").eq("tenant_id",tenant.id).order("name"),
-      supabase.from("custom_skus").select("id,sku,name,price").eq("tenant_id",tenant.id).order("name"),
-      supabase.from("price_level_items").select("price_level_id,item_id,item_source,override_value").eq("tenant_id",tenant.id),
+      supabase.from("qbo_items").select("id,sku,name,price").eq("tenant_id",tenant.id),
+      supabase.from("custom_skus").select("id,sku,name,price").eq("tenant_id",tenant.id),
+      supabase.from("price_level_items").select("price_level_id,item_id,override_value").eq("tenant_id",tenant.id),
       supabase.from("customers").select("id,display_name,primary_price_level_id").eq("tenant_id",tenant.id).order("display_name"),
     ]);
-    const its = [];
-    (qi.data||[]).forEach(x => its.push({ ...x, source:"qbo" }));
-    (cs.data||[]).forEach(x => its.push({ ...x, source:"custom" }));
-    setLevels(lv.data||[]); setItems(its); setCustomers(cu.data||[]);
-    const c={}; (pli.data||[]).forEach(p=>{ const k=(p.item_source||"custom")+":"+p.item_id; (c[k]=c[k]||{})[p.price_level_id]=p.override_value; }); setCells(c);
+    setLevels(lv.data||[]); setCustomers(cu.data||[]);
+    const its=[...(qi.data||[]).map(x=>({...x,source:"qbo"})), ...(cs.data||[]).map(x=>({...x,source:"custom"}))].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+    setItems(its);
+    const c={}; (pli.data||[]).forEach(p=>{ (c[p.item_id]=c[p.item_id]||{})[p.price_level_id]=p.override_value; }); setCells(c);
     setRk(x=>x+1); setLoading(false);
   };
   useEffect(()=>{ load(); }, [tenant.id]);
 
   const saveCell = async (item, plId, val) => {
-    const k = keyOf(item);
     const raw = String(val).trim().replace(/[^0-9.\-]/g,"");
     if (raw==="") {
-      await supabase.from("price_level_items").delete().match({tenant_id:tenant.id,price_level_id:plId,item_id:item.id,item_source:item.source});
-      setCells(c=>{ const n={...c}; if(n[k]){ n[k]={...n[k]}; delete n[k][plId]; } return n; });
+      await supabase.from("price_level_items").delete().match({price_level_id:plId,item_id:item.id,item_source:item.source});
+      setCells(c=>{ const n={...c}; if(n[item.id]){ n[item.id]={...n[item.id]}; delete n[item.id][plId]; } return n; });
     } else {
       const v=parseFloat(raw);
       await supabase.from("price_level_items").upsert({tenant_id:tenant.id,price_level_id:plId,item_id:item.id,item_source:item.source,override_mode:"custom",override_value:v},{onConflict:"price_level_id,item_source,item_id"});
-      setCells(c=>({...c,[k]:{...(c[k]||{}),[plId]:v}}));
+      setCells(c=>({...c,[item.id]:{...(c[item.id]||{}),[plId]:v}}));
     }
     flash("Saved");
   };
   const saveBase = async (item, val) => {
     const v=parseFloat(String(val).replace(/[^0-9.\-]/g,""))||0;
-    const table = item.source==="qbo" ? "qbo_items" : "custom_skus";
-    await supabase.from(table).update({price:v}).eq("id",item.id);
-    setItems(its=>its.map(i=>(i.source===item.source&&i.id===item.id)?{...i,price:v}:i)); flash("Base saved");
+    await supabase.from(item.source==="qbo"?"qbo_items":"custom_skus").update({price:v}).eq("id",item.id);
+    setItems(its=>its.map(i=>i.id===item.id?{...i,price:v}:i)); flash("Base saved");
   };
   const setTier = async (custId, plId) => {
     const v = plId || null;
@@ -1389,14 +1469,14 @@ function PriceBook({ tenant }) {
         const {data}=await supabase.from("price_levels").select("id,name,rank").eq("tenant_id",tenant.id).order("rank"); lv=data||[];
       }
       const rankToId={}; lv.forEach(l=>rankToId[l.rank]=l.id);
-      let cur=items.filter(i=>i.source==="custom"); let n=0;
+      let cur=[...items]; let n=0;
       for(const row of impRows){
         const name=String(row[mName]??"").trim(); if(!name) continue;
         const sku=mSku?String(row[mSku]??"").trim():name;
         const base=mBase?(parseFloat(row[mBase])||0):0;
         let itemId; const ex=cur.find(i=>i.sku===sku);
         if(ex){ itemId=ex.id; await supabase.from("custom_skus").update({name,price:base}).eq("id",itemId); }
-        else { const {data,error}=await supabase.from("custom_skus").insert({tenant_id:tenant.id,sku,name,price:base,item_group:"Imported"}).select("id").single(); if(error) throw error; itemId=data.id; cur.push({id:itemId,sku,name,price:base,source:"custom"}); }
+        else { const {data,error}=await supabase.from("custom_skus").insert({tenant_id:tenant.id,sku,name,price:base,item_group:"Imported"}).select("id").single(); if(error) throw error; itemId=data.id; cur.push({id:itemId,sku,name,price:base}); }
         const pr=[];
         cols.forEach((col,idx)=>{ const v=row[col]; if(v!==null&&v!==""&&!isNaN(parseFloat(v))) pr.push({tenant_id:tenant.id,price_level_id:rankToId[idx+1],item_id:itemId,item_source:"custom",override_mode:"custom",override_value:parseFloat(v)}); });
         if(pr.length) await supabase.from("price_level_items").upsert(pr,{onConflict:"price_level_id,item_source,item_id"});
@@ -1456,21 +1536,21 @@ function PriceBook({ tenant }) {
               {levels.map(l=>(<th key={l.id} style={{position:"sticky",top:0,background:"#fafaf6",padding:"8px 6px",fontSize:11,color:"var(--muted)",borderBottom:"1px solid var(--line)",borderRight:"1px solid var(--line)",whiteSpace:"nowrap"}}>{l.name.replace("Price Level","PL")}</th>))}
             </tr></thead>
             <tbody>
-              {items.map(it=>{ const k=keyOf(it); return (
-                <tr key={k}>
+              {items.map(it=>(
+                <tr key={it.id}>
                   <td style={{position:"sticky",left:0,zIndex:1,background:"#fff",padding:"6px 8px",borderBottom:"1px solid #eee",borderRight:"1px solid var(--line)",minWidth:150}}>
                     <div style={{fontWeight:600,whiteSpace:"nowrap"}}>{it.name}</div>
                     <div style={{fontSize:10,color:"var(--muted)"}}>{it.sku} · base <input defaultValue={money(it.price)} onBlur={e=>saveBase(it,e.target.value)} inputMode="decimal" style={{width:54,border:"1px solid #eee",borderRadius:4,fontSize:11,textAlign:"right",fontFamily:"monospace",padding:"1px 3px"}}/></div>
                   </td>
                   {levels.map(l=>(
                     <td key={l.id} style={{borderBottom:"1px solid #eee",borderRight:"1px solid var(--line)"}}>
-                      <input defaultValue={cells[k]&&cells[k][l.id]!=null?money(cells[k][l.id]):""} placeholder="·"
+                      <input defaultValue={cells[it.id]&&cells[it.id][l.id]!=null?money(cells[it.id][l.id]):""} placeholder="·"
                         onBlur={e=>saveCell(it,l.id,e.target.value)} inputMode="decimal"
                         style={{width:62,border:"1px solid transparent",background:"transparent",fontFamily:"monospace",fontSize:13,textAlign:"right",padding:"7px 5px"}}/>
                     </td>
                   ))}
                 </tr>
-              ); })}
+              ))}
             </tbody>
           </table>
         </div>
