@@ -247,7 +247,7 @@ body {
 .wo-pill { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
 .wo-pill.open { background: var(--wip-soft); color: var(--wip); }
 .wo-pill.invoiced { background: var(--inv-soft); color: var(--inv); }
-.wo-actions { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
+.wo-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line); justify-content: flex-start; }
 .btn-sm { padding: 6px 12px; font-size: 12px; min-height: 32px; }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
@@ -1037,14 +1037,14 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
               <div className="wo-meta-r">
                 {!hideRates && <div className="wo-amt">{fmt$(woTotal(wo))}</div>}
                 <span className="wo-pill open">Open</span>
-                <div className="wo-actions">
-                  <button className="btn btn-outline btn-sm" onClick={()=>onEditOpen(wo)}>✎ Edit</button>
-                  <button className="btn btn-outline btn-sm" onClick={()=>doPrint(wo)}>🖨 Print</button>
-                  <button className="btn btn-outline btn-sm" onClick={()=>onPickInvoice(wo)}>
-                    <span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:"var(--red)"}}/>
-                    Create Invoice
-                  </button>
-                </div>
+              </div>
+              <div className="wo-actions">
+                <button className="btn btn-outline btn-sm" onClick={()=>onEditOpen(wo)}>✎ Edit</button>
+                <button className="btn btn-outline btn-sm" onClick={()=>doPrint(wo)}>🖨 Print</button>
+                <button className="btn btn-outline btn-sm" onClick={()=>onPickInvoice(wo)}>
+                  <span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:"var(--red)"}}/>
+                  Create Invoice
+                </button>
               </div>
             </div>
           ))
@@ -1069,9 +1069,9 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
               <div className="wo-meta-r">
                 {!hideRates && <div className="wo-amt">{fmt$(woTotal(wo))}</div>}
                 <span className="wo-pill invoiced">Invoiced</span>
-                <div className="wo-actions">
-                  <button className="btn btn-outline btn-sm" onClick={()=>onEditInvoiced(wo)}>✎ Edit</button>
-                </div>
+              </div>
+              <div className="wo-actions">
+                <button className="btn btn-outline btn-sm" onClick={()=>onEditInvoiced(wo)}>✎ Edit</button>
               </div>
             </div>
           ))}
