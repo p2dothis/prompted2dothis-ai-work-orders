@@ -627,6 +627,9 @@ function WorkOrderApp({ user, tenant, userRole }) {
             onCreateNew={() => setStep(1)}
             onEditInvoiced={(wo) => { setEditingWO(wo); setStep(5); }}
             onEditOpen={(wo) => { setEditingWO(wo); setStep(5); }}
+            qboConnected={qboConnected}
+            user={user}
+            onReload={loadWOs}
           />
         )}
 
@@ -985,7 +988,7 @@ function buildWoPdf(wo, hideRates){
 }
 
 // ─── STEP 2: OPEN WO LIST ────────────────────────────────────────────────────
-function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen }) {
+function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload }) {
   const open = workOrders.filter(w => w.status === "open");
   const recent = workOrders.filter(w => w.status === "invoiced").slice(0, 5);
 
@@ -1004,6 +1007,46 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
     setTimeout(()=>setPrintMsg(""), 5000);
   };
 
+  // ── Batch invoicing ──
+  const [selected, setSelected] = useState({});
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchResult, setBatchResult] = useState(null);
+  const selectedIds = open.filter(w => selected[w.id]).map(w => w.id);
+  const toggleOne = (id) => setSelected(s => ({ ...s, [id]: !s[id] }));
+  const toggleAll = () => {
+    if (selectedIds.length === open.length) setSelected({});
+    else { const all = {}; open.forEach(w => all[w.id] = true); setSelected(all); }
+  };
+  const runBatch = async () => {
+    if (!qboConnected) { alert("Connect QuickBooks first in Settings."); return; }
+    const targets = open.filter(w => selected[w.id]);
+    if (!targets.length) return;
+    if (!window.confirm(`Create ${targets.length} live invoice${targets.length!==1?"s":""} in QuickBooks?\n\nEach is saved (not sent) so you can review before sending.`)) return;
+    setBatchResult(null); setBatchRunning(true);
+    const ok = [], fail = [];
+    for (const wo of targets) {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-create-invoice`, {
+          method: "POST",
+          headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+          body: JSON.stringify({ wo, tenant_id: wo.tenant_id }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || "QBO push failed");
+        await supabase.from("work_orders").update({
+          status: "invoiced", invoice_no: data.invoiceNum, invoice_qbo_id: data.invoiceId, invoiced_by: user.email,
+        }).eq("id", wo.id);
+        ok.push({ id: wo.id, num: data.invoiceNum });
+      } catch (e) {
+        fail.push({ id: wo.id, error: e.message });
+      }
+    }
+    setBatchResult({ ok, fail });
+    setSelected({});
+    setBatchRunning(false);
+    onReload && onReload();
+  };
+
   if (loading) return <div className="sheet"><div className="empty-state">Loading…</div></div>;
 
   return (
@@ -1018,6 +1061,34 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
         </div>
         {printMsg && <div style={{background:"#eef6f1",border:"1px solid #2ca01c",borderRadius:6,padding:"8px 12px",margin:"0 0 10px",fontSize:13}}>{printMsg}</div>}
 
+        {batchResult && (
+          <div style={{background: batchResult.fail.length ? "#fef9e7" : "#eef6f1", border:"1px solid "+(batchResult.fail.length?"#e7c389":"#2ca01c"), borderRadius:6, padding:"10px 12px", marginBottom:10, fontSize:13}}>
+            <div><b>✓ {batchResult.ok.length} invoice{batchResult.ok.length!==1?"s":""} created</b>{batchResult.fail.length ? ` · ${batchResult.fail.length} failed` : ""}</div>
+            {batchResult.fail.length > 0 && (
+              <div style={{marginTop:6}}>
+                {batchResult.fail.map(f => <div key={f.id} style={{color:"var(--red)"}}>WO #{f.id}: {f.error}</div>)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {open.length > 0 && (
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,flexWrap:"wrap"}}>
+            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
+              <input type="checkbox" checked={open.length>0 && selectedIds.length===open.length} onChange={toggleAll}/>
+              Select all
+            </label>
+            {selectedIds.length>0 && <span style={{fontSize:13,color:"var(--muted)"}}>{selectedIds.length} selected</span>}
+            <div style={{flex:1}}/>
+            <button className="btn btn-primary btn-sm"
+              disabled={selectedIds.length===0 || batchRunning || !qboConnected}
+              onClick={runBatch}
+              title={!qboConnected ? "Connect QuickBooks in Settings first" : ""}>
+              {batchRunning ? "Creating…" : `Create ${selectedIds.length ? selectedIds.length+" " : ""}Invoice${selectedIds.length===1?"":"s"} → QBO`}
+            </button>
+          </div>
+        )}
+
         {open.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">📋</div>
@@ -1027,11 +1098,14 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
         ) : (
           open.map(wo => (
             <div key={wo.id} className="wo-card">
-              <div className="wo-meta-l">
-                <div className="wo-id">WO #{wo.id} · {wo.date}</div>
-                <div className="wo-customer">{wo.customer}</div>
-                <div className="wo-info">
-                  {wo.technician || "—"} · {(wo.lines||[]).length} line{(wo.lines||[]).length!==1?"s":""}
+              <div className="wo-meta-l" style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                <input type="checkbox" checked={!!selected[wo.id]} onChange={()=>toggleOne(wo.id)} style={{marginTop:3,width:16,height:16,flexShrink:0,cursor:"pointer"}}/>
+                <div style={{minWidth:0}}>
+                  <div className="wo-id">WO #{wo.id} · {wo.date}</div>
+                  <div className="wo-customer">{wo.customer}</div>
+                  <div className="wo-info">
+                    {wo.technician || "—"} · {(wo.lines||[]).length} line{(wo.lines||[]).length!==1?"s":""}
+                  </div>
                 </div>
               </div>
               <div className="wo-meta-r">
