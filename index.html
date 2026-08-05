@@ -326,6 +326,9 @@ const PLANS = [
   { id:"pro",   name:"Service Pro", price:29, featured:true, features:["Everything in GPS","Price Levels for QBO included","Customer-tier pricing","Best value"] },
 ];
 
+// Employees allowed per subscription plan (active members + pending invites)
+const SEAT_LIMITS = { basic: 5, gps: 10, pro: 20 };
+
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const fmt$ = n => "$" + (Number(n)||0).toFixed(2);
 const today = () => new Date().toISOString().split("T")[0];
@@ -336,6 +339,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [tenant, setTenant] = useState(null);
   const [userRole, setUserRole] = useState("tech");
+  const [canInvoice, setCanInvoice] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -358,6 +362,7 @@ function App() {
     if (tu?.tenants) {
       setTenant(tu.tenants);
       setUserRole(tu.role || "tech");
+      setCanInvoice(!!tu.can_invoice);
       setView("app");
       return;
     }
@@ -380,6 +385,7 @@ function App() {
       await supabase.from("tenant_invites").update({ accepted_at: new Date().toISOString() }).eq("id", invite.id);
       setTenant(invite.tenants);
       setUserRole(invite.role);
+      setCanInvoice(!!invite.can_invoice);
       setView("app");
       return;
     }
@@ -392,7 +398,7 @@ function App() {
   if (view === "signin")  return <SignIn onSwitchSignup={()=>setView("signup")} onBack={()=>setView("landing")} />;
   if (view === "signup")  return <SignUp onSwitchSignin={()=>setView("signin")} onBack={()=>setView("landing")} />;
   if (view === "wizard")  return <SetupWizard user={user} onComplete={(t)=>{setTenant(t);setView("app");}} />;
-  if (view === "app")     return <WorkOrderApp user={user} tenant={tenant} userRole={userRole} />;
+  if (view === "app")     return <WorkOrderApp user={user} tenant={tenant} userRole={userRole} canInvoice={canInvoice} />;
   return null;
 }
 
@@ -548,7 +554,7 @@ function SetupWizard({ user, onComplete }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // WORK ORDER APP — three-step flow
 // ═══════════════════════════════════════════════════════════════════════════
-function WorkOrderApp({ user, tenant, userRole }) {
+function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
   const [step, setStep] = useState(1);
   const [workOrders, setWorkOrders] = useState([]);
   const [editingWO, setEditingWO] = useState(null);
@@ -578,6 +584,15 @@ function WorkOrderApp({ user, tenant, userRole }) {
 
   // Hide rates from techs if setting is on and user is a tech (not owner/admin)
   const hideRates = settings.hide_rates_from_techs && userRole === "tech";
+  const isAdmin = userRole === "owner" || userRole === "admin";
+  const isViewer = userRole === "viewer";
+  const canCreate = !isViewer;                              // WO-only, WO+invoice, admin
+  const mayInvoice = !isViewer && (isAdmin || canInvoice);  // WO+invoice or admin
+  useEffect(() => {
+    if (isViewer && step !== 2 && step !== 3) setStep(2);
+    else if (!isAdmin && step === 4) setStep(2);
+    else if (!canCreate && (step === 1 || step === 5)) setStep(2);
+  }, [step, isViewer, isAdmin, canCreate]);
 
   const openCount = workOrders.filter(w => w.status === "open").length;
   const signOut = async () => { await supabase.auth.signOut(); };
@@ -610,9 +625,9 @@ function WorkOrderApp({ user, tenant, userRole }) {
       )}
 
       <div className="main">
-        <StepRibbon step={step} setStep={setStep} openCount={openCount} hasEditing={!!editingWO} />
+        <StepRibbon step={step} setStep={setStep} openCount={openCount} hasEditing={!!editingWO} canCreate={canCreate} isAdmin={isAdmin} />
 
-        {step === 1 && (
+        {step === 1 && canCreate && (
           <CreateWO
             tenant={tenant} user={user} hideRates={hideRates}
             onSaved={() => { loadWOs(); setStep(2); }}
@@ -630,6 +645,8 @@ function WorkOrderApp({ user, tenant, userRole }) {
             qboConnected={qboConnected}
             user={user}
             onReload={loadWOs}
+            mayInvoice={mayInvoice}
+            canCreate={canCreate}
           />
         )}
 
@@ -637,15 +654,15 @@ function WorkOrderApp({ user, tenant, userRole }) {
           <InvoicePush
             wo={editingWO}
             qboConnected={qboConnected}
-            user={user} hideRates={hideRates} userRole={userRole}
+            user={user} hideRates={hideRates} userRole={userRole} mayInvoice={mayInvoice}
             onDone={() => { loadWOs(); setEditingWO(null); setStep(2); }}
             onBack={() => setStep(2)}
           />
         )}
 
-        {step === 4 && <PriceBook tenant={tenant} />}
+        {step === 4 && isAdmin && <PriceBook tenant={tenant} />}
 
-        {step === 5 && (
+        {step === 5 && canCreate && (
           <CreateWO
             tenant={tenant} user={user} hideRates={hideRates}
             editing={editingWO}
@@ -659,14 +676,16 @@ function WorkOrderApp({ user, tenant, userRole }) {
 }
 
 // ─── STEP RIBBON ────────────────────────────────────────────────────────────
-function StepRibbon({ step, setStep, openCount, hasEditing }) {
+function StepRibbon({ step, setStep, openCount, hasEditing, canCreate, isAdmin }) {
   return (
     <div className="step-ribbon">
+      {canCreate && (
       <div className={`step-card s1 ${step===1?"active":""}`} onClick={()=>setStep(1)}>
         <div className="step-num">Step 1</div>
         <div className="step-title">Create Work Order</div>
         <div className="step-meta">New WO — customer, technician, lines</div>
       </div>
+      )}
       <div className={`step-card s2 ${step===2?"active":""}`} onClick={()=>setStep(2)}>
         <div className="step-num">Step 2</div>
         <div className="step-title">Open Work Orders</div>
@@ -680,11 +699,13 @@ function StepRibbon({ step, setStep, openCount, hasEditing }) {
         <div className="step-title">Create Invoice → QBO</div>
         <div className="step-meta">Push to QuickBooks</div>
       </div>
+      {isAdmin && (
       <div className={`step-card ${step===4?"active":""}`} onClick={()=>setStep(4)}>
         <div className="step-num">Setup</div>
         <div className="step-title">Price Book</div>
         <div className="step-meta">Tiers · import list</div>
       </div>
+      )}
     </div>
   );
 }
@@ -988,7 +1009,7 @@ function buildWoPdf(wo, hideRates){
 }
 
 // ─── STEP 2: OPEN WO LIST ────────────────────────────────────────────────────
-function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload }) {
+function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate }) {
   const open = workOrders.filter(w => w.status === "open");
   const recent = workOrders.filter(w => w.status === "invoiced").slice(0, 5);
 
@@ -1057,7 +1078,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
             <div className="sheet-title">Open Work Orders</div>
             <div className="sheet-meta">{open.length} awaiting invoice</div>
           </div>
-          <button className="btn btn-primary btn-sm" onClick={onCreateNew}>＋ New</button>
+          {canCreate && <button className="btn btn-primary btn-sm" onClick={onCreateNew}>＋ New</button>}
         </div>
         {printMsg && <div style={{background:"#eef6f1",border:"1px solid #2ca01c",borderRadius:6,padding:"8px 12px",margin:"0 0 10px",fontSize:13}}>{printMsg}</div>}
 
@@ -1072,7 +1093,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
           </div>
         )}
 
-        {open.length > 0 && (
+        {open.length > 0 && mayInvoice && (
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,flexWrap:"wrap"}}>
             <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
               <input type="checkbox" checked={open.length>0 && selectedIds.length===open.length} onChange={toggleAll}/>
@@ -1099,7 +1120,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
           open.map(wo => (
             <div key={wo.id} className="wo-card">
               <div className="wo-meta-l" style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                <input type="checkbox" checked={!!selected[wo.id]} onChange={()=>toggleOne(wo.id)} style={{marginTop:3,width:16,height:16,flexShrink:0,cursor:"pointer"}}/>
+                {mayInvoice && <input type="checkbox" checked={!!selected[wo.id]} onChange={()=>toggleOne(wo.id)} style={{marginTop:3,width:16,height:16,flexShrink:0,cursor:"pointer"}}/>}
                 <div style={{minWidth:0}}>
                   <div className="wo-id">WO #{wo.id} · {wo.date}</div>
                   <div className="wo-customer">{wo.customer}</div>
@@ -1113,12 +1134,14 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
                 <span className="wo-pill open">Open</span>
               </div>
               <div className="wo-actions">
-                <button className="btn btn-outline btn-sm" onClick={()=>onEditOpen(wo)}>✎ Edit</button>
+                {canCreate && <button className="btn btn-outline btn-sm" onClick={()=>onEditOpen(wo)}>✎ Edit</button>}
                 <button className="btn btn-outline btn-sm" onClick={()=>doPrint(wo)}>🖨 Print</button>
+                {mayInvoice && (
                 <button className="btn btn-outline btn-sm" onClick={()=>onPickInvoice(wo)}>
                   <span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:"var(--red)"}}/>
                   Create Invoice
                 </button>
+                )}
               </div>
             </div>
           ))
@@ -1145,7 +1168,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
                 <span className="wo-pill invoiced">Invoiced</span>
               </div>
               <div className="wo-actions">
-                <button className="btn btn-outline btn-sm" onClick={()=>onEditInvoiced(wo)}>✎ Edit</button>
+                {mayInvoice && <button className="btn btn-outline btn-sm" onClick={()=>onEditInvoiced(wo)}>✎ Edit</button>}
               </div>
             </div>
           ))}
@@ -1156,7 +1179,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
 }
 
 // ─── STEP 3: INVOICE PUSH ────────────────────────────────────────────────────
-function InvoicePush({ wo, qboConnected, user, onDone, onBack }) {
+function InvoicePush({ wo, qboConnected, user, onDone, onBack, mayInvoice }) {
   const [pushing, setPushing] = useState(false);
   const [err, setErr] = useState("");
   const [posted, setPosted] = useState(null);
@@ -1280,7 +1303,7 @@ function InvoicePush({ wo, qboConnected, user, onDone, onBack }) {
         <p style={{fontSize:13,color:"var(--muted)",marginBottom:16}}>
           This creates a <strong>draft invoice</strong> in QuickBooks. Customer is not emailed until you click Send in QBO.
         </p>
-        <button className="btn-qbo-push" onClick={pushToQbo} disabled={pushing || !qboConnected}>
+        <button className="btn-qbo-push" onClick={pushToQbo} disabled={pushing || !qboConnected || !mayInvoice}>
           <span className="red-dot"/>
           {pushing ? "Pushing to QuickBooks…" : "Create Invoice → QuickBooks"}
         </button>
@@ -1316,6 +1339,7 @@ function TeamSection({ tenant, currentUserId }) {
   const sendInvite = async () => {
     const email = inviteEmail.trim().toLowerCase();
     if (!email) { alert("Email is required"); return; }
+    if (seatsUsed >= seatLimit) { alert(`All ${seatLimit} seats are in use on the ${tenant.plan} plan. Remove a member or upgrade to add more.`); return; }
     setBusy(true);
     try {
       // Check for duplicate
@@ -1360,10 +1384,13 @@ function TeamSection({ tenant, currentUserId }) {
     load();
   };
 
+  const seatLimit = SEAT_LIMITS[tenant.plan] || 5;
+  const seatsUsed = members.filter(m=>m.active).length + invites.length;
+
   return (
     <div className="settings-section">
       <div className="settings-h">Team Members</div>
-      <div className="settings-sub">Invite teammates and assign roles.</div>
+      <div className="settings-sub">Invite teammates and assign roles. <b>{seatsUsed} of {seatLimit} seats used</b> on the {tenant.plan} plan.</div>
 
       {loading ? <div style={{fontSize:13,color:"var(--muted)"}}>Loading…</div> : (
         <>
@@ -1420,7 +1447,9 @@ function TeamSection({ tenant, currentUserId }) {
           )}
 
           {/* Invite form */}
-          {!showInvite ? (
+          {seatsUsed >= seatLimit ? (
+            <div className="alert alert-info">All {seatLimit} seats on the {tenant.plan} plan are in use. Remove a member or upgrade your plan to add more.</div>
+          ) : !showInvite ? (
             <button className="btn btn-outline btn-sm" onClick={()=>setShowInvite(true)}>＋ Invite Team Member</button>
           ) : (
             <div style={{padding:12,border:"1.5px dashed var(--inv)",borderRadius:6,marginTop:6}}>
@@ -1514,6 +1543,47 @@ function PriceBook({ tenant }) {
     setCustomers(cs=>cs.map(c=>c.id===custId?{...c,primary_price_level_id:v}:c)); flash("Tier updated");
   };
 
+  // ---- bulk price adjust ----
+  const [adjDir, setAdjDir] = useState("raise");
+  const [adjMode, setAdjMode] = useState("amount");
+  const [adjVal, setAdjVal] = useState("");
+  const [adjBase, setAdjBase] = useState(true);
+  const [adjTiers, setAdjTiers] = useState(true);
+  const [adjBusy, setAdjBusy] = useState(false);
+  const applyAdjust = async () => {
+    const v = parseFloat(String(adjVal).replace(/[^0-9.]/g,""));
+    if (!v || v<=0) { flash("Enter an amount greater than 0"); return; }
+    if (!adjBase && !adjTiers) { flash("Choose base prices, tier prices, or both"); return; }
+    const sign = adjDir==="lower" ? -1 : 1;
+    const adj = (n) => { const cur=Number(n)||0; let out = adjMode==="percent" ? cur*(1+sign*v/100) : cur+sign*v; out=Math.round(out*100)/100; return out<0?0:out; };
+    const baseCount = adjBase ? items.length : 0;
+    let tierCount = 0;
+    if (adjTiers) items.forEach(it => levels.forEach(l => { if (cells[it.id] && cells[it.id][l.id]!=null) tierCount++; }));
+    const parts = [];
+    if (adjBase) parts.push(baseCount+" base price"+(baseCount!==1?"s":""));
+    if (adjTiers) parts.push(tierCount+" tier price"+(tierCount!==1?"s":""));
+    const amt = adjMode==="percent" ? v+"%" : "$"+v.toFixed(2);
+    if (!window.confirm((adjDir==="lower"?"Lower ":"Raise ")+parts.join(" and ")+" by "+amt+"?\n\nThis can't be undone.")) return;
+    setAdjBusy(true);
+    try {
+      if (adjBase) {
+        for (const it of items) {
+          await supabase.from(it.source==="qbo"?"qbo_items":"custom_skus").update({price:adj(it.price)}).eq("id", it.id);
+        }
+      }
+      if (adjTiers) {
+        const rows = [];
+        items.forEach(it => levels.forEach(l => {
+          const cur = cells[it.id] && cells[it.id][l.id];
+          if (cur!=null) rows.push({ tenant_id:tenant.id, price_level_id:l.id, item_id:it.id, item_source:it.source, override_mode:"custom", override_value:adj(cur) });
+        }));
+        for (let i=0;i<rows.length;i+=200) { const chunk=rows.slice(i,i+200); if (chunk.length) await supabase.from("price_level_items").upsert(chunk,{onConflict:"price_level_id,item_source,item_id"}); }
+      }
+      flash("Prices updated"); setAdjVal(""); await load(); setTab("matrix");
+    } catch(err) { flash("Adjust error: "+err.message); }
+    setAdjBusy(false);
+  };
+
   // ---- import ----
   const [impRows, setImpRows] = useState(null);
   const [impCols, setImpCols] = useState([]);
@@ -1599,7 +1669,7 @@ function PriceBook({ tenant }) {
       </div>
       {msg && <div style={{background:"#eef6f1",border:"1px solid #2ca01c",borderRadius:6,padding:"8px 12px",marginBottom:12,fontSize:13}}>{msg}</div>}
       <div style={{display:"flex",gap:6,marginBottom:14}}>
-        {["matrix","customers","import"].map(t=>(
+        {["matrix","customers","adjust","import"].map(t=>(
           <button key={t} onClick={()=>setTab(t)}
             style={{flex:1,padding:"9px 4px",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer",textTransform:"capitalize",fontFamily:"inherit",background:tab===t?"var(--ink)":"#fff",color:tab===t?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>{t}</button>
         ))}
@@ -1651,6 +1721,44 @@ function PriceBook({ tenant }) {
               </select>
             </div>
           ))}
+        </div>
+      )}
+
+      {tab==="adjust" && (
+        <div>
+          <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:12}}>Raise or lower every price at once — by a flat amount or a percent. Pick whether it touches your base list prices, your tier (price-level) prices, or both.</div>
+
+          <div style={{display:"flex",gap:6,marginBottom:12}}>
+            <button onClick={()=>setAdjDir("raise")} style={{flex:1,padding:"9px",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:adjDir==="raise"?"var(--go)":"#fff",color:adjDir==="raise"?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>▲ Raise</button>
+            <button onClick={()=>setAdjDir("lower")} style={{flex:1,padding:"9px",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:adjDir==="lower"?"var(--red)":"#fff",color:adjDir==="lower"?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>▼ Lower</button>
+          </div>
+
+          <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}>
+            <div style={{flex:1}}>
+              <div className="label" style={{marginBottom:4}}>{adjMode==="percent"?"Percent":"Amount per item"}</div>
+              <input className="input" inputMode="decimal" value={adjVal} onChange={e=>setAdjVal(e.target.value)} placeholder={adjMode==="percent"?"e.g. 3":"e.g. 0.25"}/>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>setAdjMode("amount")} style={{padding:"10px 14px",borderRadius:7,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",background:adjMode==="amount"?"var(--ink)":"#fff",color:adjMode==="amount"?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>$</button>
+              <button onClick={()=>setAdjMode("percent")} style={{padding:"10px 14px",borderRadius:7,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",background:adjMode==="percent"?"var(--ink)":"#fff",color:adjMode==="percent"?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>%</button>
+            </div>
+          </div>
+
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+            <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}>
+              <input type="checkbox" checked={adjBase} onChange={e=>setAdjBase(e.target.checked)}/>
+              Base list prices <span style={{color:"var(--muted)"}}>({items.length} items)</span>
+            </label>
+            <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}>
+              <input type="checkbox" checked={adjTiers} onChange={e=>setAdjTiers(e.target.checked)}/>
+              Tier prices <span style={{color:"var(--muted)"}}>(every filled cell in the matrix)</span>
+            </label>
+          </div>
+
+          <button className="btn btn-primary" disabled={adjBusy} onClick={applyAdjust} style={{width:"100%"}}>
+            {adjBusy ? "Applying…" : (adjDir==="lower"?"Lower":"Raise")+" prices"}
+          </button>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:8,textAlign:"center"}}>You'll get a confirmation with the exact count before anything changes. No bulk undo.</div>
         </div>
       )}
 
