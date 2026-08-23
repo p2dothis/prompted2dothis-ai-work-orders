@@ -329,6 +329,15 @@ const PLANS = [
 // Employees allowed per subscription plan (active members + pending invites)
 const SEAT_LIMITS = { basic: 5, gps: 10, pro: 20 };
 
+// Stripe payment links (TEST sandbox — swap these to the LIVE buy.stripe.com URLs when going live)
+const STRIPE_LINKS = {
+  basic: "https://buy.stripe.com/test_aFa7sM87XbwH7CGffK8so00",
+  gps:   "https://buy.stripe.com/test_28E5kE4VL44fbSWebG8so01",
+  pro:   "https://buy.stripe.com/test_8x29AUgEt44f1ei0kQ8so02",
+};
+// Paste the Stripe Customer Portal link here to turn on the "Manage billing" button:
+const STRIPE_PORTAL_URL = "";
+
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const fmt$ = n => "$" + (Number(n)||0).toFixed(2);
 const today = () => new Date().toISOString().split("T")[0];
@@ -412,7 +421,7 @@ function Landing({ onSignup, onSignin }) {
         <h1 className="landing-h1">Work orders that flow directly to QuickBooks.</h1>
         <p className="landing-sub">Stop double-entering data. Create work orders in the field, auto-sync to QuickBooks invoices, get paid faster.</p>
         <div className="landing-cta">
-          <button className="btn btn-primary" onClick={onSignup}>Start Free 14-Day Trial</button>
+          <button className="btn btn-primary" onClick={onSignup}>Start Free 30-Day Trial</button>
           <button className="btn btn-ghost" onClick={onSignin}>Sign In</button>
         </div>
       </div>
@@ -464,7 +473,7 @@ function SignUp({ onSwitchSignin, onBack }) {
       <div className="auth-logo">AI Work Orders</div>
       <div className="auth-tag">By Prompted To Do This</div>
       <h2 className="auth-h2">Create your account</h2>
-      <p className="auth-sub">Start your free 14-day trial. No credit card required.</p>
+      <p className="auth-sub">Start your free 30-day trial. No credit card required.</p>
       {err && <div className="alert alert-error">{err}</div>}
       <form onSubmit={submit}>
         <div className="fg"><label className="label">Email</label>
@@ -485,7 +494,7 @@ function SetupWizard({ user, onComplete }) {
   const [plan,setPlan]=useState("basic"); const [err,setErr]=useState(""); const [loading,setLoading]=useState(false);
   const finish=async()=>{setErr("");setLoading(true);
     try{
-      const {data:t,error:tErr}=await supabase.from("tenants").insert({name:companyName,owner_email:user.email,industry,phone,plan}).select().single();
+      const {data:t,error:tErr}=await supabase.from("tenants").insert({name:companyName,owner_email:user.email,industry,phone,plan,trial_ends_at:new Date(Date.now()+30*24*60*60*1000).toISOString()}).select().single();
       if(tErr) throw tErr;
       const {error:tuErr}=await supabase.from("tenant_users").insert({tenant_id:t.id,user_id:user.id,email:user.email,role:"owner",can_invoice:true,active:true});
       if(tuErr) throw tuErr;
@@ -525,7 +534,7 @@ function SetupWizard({ user, onComplete }) {
       </>}
       {step===2 && <>
         <h2 className="auth-h2">Step 2: Pick your plan</h2>
-        <p className="auth-sub">All plans start with a 14-day free trial.</p>
+        <p className="auth-sub">All plans start with a 30-day free trial.</p>
         <div className="plan-grid">{PLANS.map(p=>(
           <div key={p.id} className={`plan-card ${plan===p.id?"sel":""} ${p.featured?"featured":""}`} onClick={()=>setPlan(p.id)}>
             {p.featured && <span className="plan-badge">Most Popular</span>}
@@ -543,7 +552,7 @@ function SetupWizard({ user, onComplete }) {
           <div style={{fontSize:13,marginBottom:6}}><strong>Company:</strong> {companyName}</div>
           <div style={{fontSize:13,marginBottom:6}}><strong>Industry:</strong> {industry}</div>
           <div style={{fontSize:13,marginBottom:6}}><strong>Plan:</strong> {PLANS.find(p=>p.id===plan)?.name} — ${PLANS.find(p=>p.id===plan)?.price}/mo</div>
-          <div style={{fontSize:12,color:"var(--muted)",marginTop:8}}>14-day free trial. Cancel anytime.</div>
+          <div style={{fontSize:12,color:"var(--muted)",marginTop:8}}>30-day free trial. Cancel anytime.</div>
         </div>
         <button className="btn btn-primary btn-full" onClick={finish} disabled={loading}>{loading?"Setting up…":"Create my AI Work Orders account"}</button>
         <div className="auth-foot"><button className="btn-link" onClick={()=>setStep(2)}>← Back</button></div>
@@ -594,6 +603,13 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
     else if (!canCreate && (step === 1 || step === 5)) setStep(2);
   }, [step, isViewer, isAdmin, canCreate]);
 
+  // Grace-banner gating: never blocks the app, just nudges when the trial has
+  // ended and there's no active subscription.
+  const subActive = ["active","trialing","past_due"].includes(tenant.subscription_status);
+  const trialEndsAt = tenant.trial_ends_at ? new Date(tenant.trial_ends_at) : null;
+  const trialEnded = trialEndsAt ? (trialEndsAt.getTime() < Date.now()) : false;
+  const needsSub = !subActive && trialEnded;
+
   const openCount = workOrders.filter(w => w.status === "open").length;
   const signOut = async () => { await supabase.auth.signOut(); };
   const initials = (user.email[0] || "U").toUpperCase();
@@ -615,6 +631,14 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
           <button className="btn-icon" onClick={signOut}>Sign out</button>
         </div>
       </div>
+
+      {needsSub && (
+        <div style={{background:"#fbeed8",borderBottom:"1px solid #e7c389",padding:"10px 16px",fontSize:13,textAlign:"center",color:"#7a4e12"}}>
+          Your trial has ended — {isAdmin
+            ? <button className="btn-text" onClick={()=>setShowSettings(true)} style={{color:"#7a4e12",fontWeight:700,textDecoration:"underline",padding:0}}>subscribe to keep AI Work Orders</button>
+            : <span style={{fontWeight:600}}>ask your owner to subscribe.</span>}
+        </div>
+      )}
 
       {showSettings && (
         <Settings tenant={tenant} user={user} userRole={userRole} qboConnected={qboConnected}
@@ -1958,6 +1982,13 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
     setSavingPrinter(false);
   };
 
+  const subscribe = (planId) => {
+    const link = STRIPE_LINKS[planId];
+    if (!link) { alert("That plan isn't set up yet."); return; }
+    const url = link + (link.includes("?") ? "&" : "?") + "client_reference_id=" + encodeURIComponent(tenant.id);
+    window.open(url, "_blank");
+  };
+
   const trialDays = tenant.trial_ends_at
     ? Math.max(0, Math.ceil((new Date(tenant.trial_ends_at) - Date.now()) / (1000*60*60*24)))
     : 0;
@@ -1986,8 +2017,23 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
             <div className="settings-h">Subscription</div>
             <div className="kv-row"><span className="k">Plan</span><span className="v">{planLabel} — ${planPrice}/mo</span></div>
             <div className="kv-row"><span className="k">Status</span><span className="v" style={{textTransform:"capitalize"}}>
-              {tenant.subscription_status === "trialing" ? `Trial — ${trialDays} days left` : tenant.subscription_status}
+              {(!["active","past_due","canceled"].includes(tenant.subscription_status) && trialDays > 0) ? `Free trial — ${trialDays} days left` : (tenant.subscription_status || "Trial ended")}
             </span></div>
+            {isAdmin && (
+              <div style={{marginTop:12}}>
+                <div className="settings-sub">Subscribe or change plan:</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {PLANS.map(pl => (
+                    <button key={pl.id} className="btn btn-outline btn-sm" onClick={()=>subscribe(pl.id)} disabled={!STRIPE_LINKS[pl.id]}>
+                      {pl.name} — ${pl.price}/mo
+                    </button>
+                  ))}
+                </div>
+                {STRIPE_PORTAL_URL && (
+                  <a className="btn-text" href={STRIPE_PORTAL_URL} target="_blank" rel="noopener noreferrer" style={{display:"inline-block",marginTop:10}}>Manage billing →</a>
+                )}
+              </div>
+            )}
           </div>
 
           {isAdmin && (
