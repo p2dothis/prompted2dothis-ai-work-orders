@@ -331,9 +331,9 @@ const SEAT_LIMITS = { basic: 5, gps: 10, pro: 20 };
 
 // Stripe payment links (TEST sandbox — swap these to the LIVE buy.stripe.com URLs when going live)
 const STRIPE_LINKS = {
-  basic: "https://buy.stripe.com/test_aFa7sM87XbwH7CGffK8so00",
-  gps:   "https://buy.stripe.com/test_28E5kE4VL44fbSWebG8so01",
-  pro:   "https://buy.stripe.com/test_8x29AUgEt44f1ei0kQ8so02",
+  basic: "",
+  gps:   "https://buy.stripe.com/28E5kE4VL44fbSWebG8so01",
+  pro:   "",
 };
 // Paste the Stripe Customer Portal link here to turn on the "Manage billing" button:
 const STRIPE_PORTAL_URL = "";
@@ -2023,9 +2023,9 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
               <div style={{marginTop:12}}>
                 <div className="settings-sub">Subscribe or change plan:</div>
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  {PLANS.map(pl => (
-                    <button key={pl.id} className="btn btn-outline btn-sm" onClick={()=>subscribe(pl.id)} disabled={!STRIPE_LINKS[pl.id]}>
-                      {pl.name} — ${pl.price}/mo
+                  {PLANS.filter(pl => STRIPE_LINKS[pl.id]).map((pl, _i, arr) => (
+                    <button key={pl.id} className="btn btn-primary btn-sm" onClick={()=>subscribe(pl.id)}>
+                      {arr.length > 1 ? `${pl.name} — $${pl.price}/mo` : `Subscribe — $${pl.price}/mo`}
                     </button>
                   ))}
                 </div>
