@@ -336,7 +336,7 @@ const STRIPE_LINKS = {
   pro:   "https://buy.stripe.com/14A3cwag57grg9caZu8so03",
 };
 // Paste the Stripe Customer Portal link here to turn on the "Manage billing" button:
-const STRIPE_PORTAL_URL = "";
+const STRIPE_PORTAL_URL = "https://billing.stripe.com/p/login/aFa7sM87XbwH7CGffK8so00";
 
 // Plans sellable right now = those with a payment link configured.
 const SELLABLE_PLANS = PLANS.filter(p => STRIPE_LINKS[p.id]);
@@ -608,7 +608,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
 
   // Grace-banner gating: never blocks the app, just nudges when the trial has
   // ended and there's no active subscription.
-  const subActive = ["active","trialing","past_due"].includes(tenant.subscription_status);
+  const subActive = ["active","past_due"].includes(tenant.subscription_status);
   const trialEndsAt = tenant.trial_ends_at ? new Date(tenant.trial_ends_at) : null;
   const trialEnded = trialEndsAt ? (trialEndsAt.getTime() < Date.now()) : false;
   const needsSub = !subActive && trialEnded;
@@ -2020,7 +2020,7 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
             <div className="settings-h">Subscription</div>
             <div className="kv-row"><span className="k">Plan</span><span className="v">{planLabel} — ${planPrice}/mo</span></div>
             <div className="kv-row"><span className="k">Status</span><span className="v" style={{textTransform:"capitalize"}}>
-              {(!["active","past_due","canceled"].includes(tenant.subscription_status) && trialDays > 0) ? `Free trial — ${trialDays} days left` : (tenant.subscription_status || "Trial ended")}
+              {["active","past_due"].includes(tenant.subscription_status) ? tenant.subscription_status : (trialDays > 0 ? `Free trial — ${trialDays} days left` : "Trial ended")}
             </span></div>
             {isAdmin && (
               <div style={{marginTop:12}}>
