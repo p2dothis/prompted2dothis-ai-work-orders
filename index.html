@@ -647,6 +647,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
             onReload={loadWOs}
             mayInvoice={mayInvoice}
             canCreate={canCreate}
+            printerEmail={settings.printer_email || ""}
           />
         )}
 
@@ -974,7 +975,6 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
 }
 
 // ─── PRINTER + PDF ───────────────────────────────────────────────────────────
-const PRINTER_EMAIL = "dprr437jdkh86@hpeprint.com";
 function buildWoPdf(wo, hideRates){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
@@ -1009,7 +1009,7 @@ function buildWoPdf(wo, hideRates){
 }
 
 // ─── STEP 2: OPEN WO LIST ────────────────────────────────────────────────────
-function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate }) {
+function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate, printerEmail }) {
   const open = workOrders.filter(w => w.status === "open");
   const recent = workOrders.filter(w => w.status === "invoiced").slice(0, 5);
 
@@ -1017,10 +1017,11 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
 
   const [printMsg, setPrintMsg] = useState("");
   const doPrint = async (wo) => {
+    if (!printerEmail) { setPrintMsg("Add your printer email in Settings first"); setTimeout(()=>setPrintMsg(""), 4500); return; }
     try {
       setPrintMsg("Sending WO #"+wo.id+" to the printer…");
       const pdf = buildWoPdf(wo, hideRates);
-      const { data, error } = await supabase.functions.invoke("email-print", { body: { to: PRINTER_EMAIL, subject:"Work Order #"+wo.id+" — "+wo.customer, filename:"WO-"+wo.id+".pdf", pdf_base64: pdf } });
+      const { data, error } = await supabase.functions.invoke("email-print", { body: { to: printerEmail, subject:"Work Order #"+wo.id+" — "+wo.customer, filename:"WO-"+wo.id+".pdf", pdf_base64: pdf } });
       if (error) throw new Error(error.message);
       if (data && data.error) throw new Error(typeof data.error==="string"?data.error:JSON.stringify(data.error));
       setPrintMsg("✓ Sent WO #"+wo.id+" to the printer");
@@ -1806,13 +1807,18 @@ function PriceBook({ tenant }) {
 function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQboChange, onSettingsChange }) {
   const [syncing, setSyncing] = useState(false);
   const [itemCount, setItemCount] = useState(0);
+  const [custCount, setCustCount] = useState(0);
+  const [syncingCust, setSyncingCust] = useState(false);
   const [lastSync, setLastSync] = useState("");
   const [hideRates, setHideRates] = useState(!!settings?.hide_rates_from_techs);
   const [savingSetting, setSavingSetting] = useState(false);
+  const [printerEmail, setPrinterEmail] = useState(settings?.printer_email || "");
+  const [savingPrinter, setSavingPrinter] = useState(false);
   const isAdmin = userRole === "owner" || userRole === "admin";
 
   useEffect(() => {
     loadItemCount();
+    loadCustCount();
     const handler = (e) => {
       if (e.data?.type === "qbo-connected") {
         onQboChange();
@@ -1834,6 +1840,13 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
       .limit(1);
     setItemCount(count || 0);
     if (data?.[0]?.synced_at) setLastSync(new Date(data[0].synced_at).toLocaleString());
+  };
+
+  const loadCustCount = async () => {
+    const { count } = await supabase.from("customers")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenant.id);
+    setCustCount(count || 0);
   };
 
   const connectQbo = async () => {
@@ -1896,6 +1909,24 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
     setSyncing(false);
   };
 
+  const syncCustomers = async () => {
+    setSyncingCust(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-list-customers`, {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ tenant_id: tenant.id }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      alert(`✅ Synced ${data.count} customers from QuickBooks`);
+      loadCustCount();
+    } catch (e) {
+      alert(`Customer sync failed: ${e.message}`);
+    }
+    setSyncingCust(false);
+  };
+
   const toggleHideRates = async () => {
     const newVal = !hideRates;
     setSavingSetting(true);
@@ -1910,6 +1941,21 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
       alert(`Could not save: ${e.message}`);
     }
     setSavingSetting(false);
+  };
+
+  const savePrinter = async () => {
+    setSavingPrinter(true);
+    try {
+      const { error } = await supabase.from("tenant_settings")
+        .update({ printer_email: printerEmail.trim() || null, updated_at: new Date().toISOString() })
+        .eq("tenant_id", tenant.id);
+      if (error) throw error;
+      onSettingsChange();
+      alert("✅ Printer email saved");
+    } catch (e) {
+      alert(`Could not save: ${e.message}`);
+    }
+    setSavingPrinter(false);
   };
 
   const trialDays = tenant.trial_ends_at
@@ -1958,6 +2004,20 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
             </div>
           )}
 
+          {isAdmin && (
+            <div className="settings-section">
+              <div className="settings-h">Printing</div>
+              <div className="settings-sub">Where the Print button sends work orders. Enter your printer's email address — for example an HP ePrint address. Leave blank and the Print button will prompt you to set it.</div>
+              <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+                <div style={{flex:1}}>
+                  <label className="label">Printer email</label>
+                  <input className="input" type="email" value={printerEmail} onChange={e=>setPrinterEmail(e.target.value)} placeholder="yourprinter@hpeprint.com"/>
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={savePrinter} disabled={savingPrinter}>{savingPrinter?"Saving…":"Save"}</button>
+              </div>
+            </div>
+          )}
+
           {isAdmin && <TeamSection tenant={tenant} currentUserId={user.id}/>}
 
           <div className="settings-section">
@@ -1973,6 +2033,11 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
                   📦 {itemCount} products synced{lastSync && ` · Last sync: ${lastSync}`}
                 </div>
               )}
+              {qboConnected && custCount > 0 && (
+                <div style={{fontSize:12,color:"var(--muted)",marginTop:2}}>
+                  👥 {custCount} customers synced
+                </div>
+              )}
             </div>
             <div className="btn-row">
               {!qboConnected ? (
@@ -1981,6 +2046,9 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
                 <>
                   <button className="btn btn-outline btn-sm" onClick={syncItems} disabled={syncing}>
                     {syncing ? "Syncing…" : itemCount > 0 ? "🔄 Re-sync Products" : "📥 Sync Products"}
+                  </button>
+                  <button className="btn btn-outline btn-sm" onClick={syncCustomers} disabled={syncingCust}>
+                    {syncingCust ? "Syncing…" : custCount > 0 ? "🔄 Re-sync Customers" : "📥 Sync Customers"}
                   </button>
                   {isAdmin && <button className="btn-text" onClick={disconnectQbo} style={{color:"var(--red)"}}>Disconnect</button>}
                 </>
