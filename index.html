@@ -329,14 +329,17 @@ const PLANS = [
 // Employees allowed per subscription plan (active members + pending invites)
 const SEAT_LIMITS = { basic: 5, gps: 10, pro: 20 };
 
-// Stripe payment links (TEST sandbox — swap these to the LIVE buy.stripe.com URLs when going live)
+// Stripe LIVE payment links (real charges). To add/enable a plan: give it a live link here AND map its price_id -> plan in the stripe_prices table.
 const STRIPE_LINKS = {
-  basic: "",
+  basic: "https://buy.stripe.com/8x29AUgEt44f1ei0kQ8so02",
   gps:   "https://buy.stripe.com/28E5kE4VL44fbSWebG8so01",
-  pro:   "",
+  pro:   "https://buy.stripe.com/14A3cwag57grg9caZu8so03",
 };
 // Paste the Stripe Customer Portal link here to turn on the "Manage billing" button:
 const STRIPE_PORTAL_URL = "";
+
+// Plans sellable right now = those with a payment link configured.
+const SELLABLE_PLANS = PLANS.filter(p => STRIPE_LINKS[p.id]);
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const fmt$ = n => "$" + (Number(n)||0).toFixed(2);
@@ -491,7 +494,7 @@ function SignUp({ onSwitchSignin, onBack }) {
 function SetupWizard({ user, onComplete }) {
   const [step,setStep]=useState(1); const [companyName,setCompanyName]=useState("");
   const [phone,setPhone]=useState(""); const [industry,setIndustry]=useState("service");
-  const [plan,setPlan]=useState("basic"); const [err,setErr]=useState(""); const [loading,setLoading]=useState(false);
+  const [plan,setPlan]=useState((SELLABLE_PLANS[0]||PLANS[0]).id); const [err,setErr]=useState(""); const [loading,setLoading]=useState(false);
   const finish=async()=>{setErr("");setLoading(true);
     try{
       const {data:t,error:tErr}=await supabase.from("tenants").insert({name:companyName,owner_email:user.email,industry,phone,plan,trial_ends_at:new Date(Date.now()+30*24*60*60*1000).toISOString()}).select().single();
@@ -535,7 +538,7 @@ function SetupWizard({ user, onComplete }) {
       {step===2 && <>
         <h2 className="auth-h2">Step 2: Pick your plan</h2>
         <p className="auth-sub">All plans start with a 30-day free trial.</p>
-        <div className="plan-grid">{PLANS.map(p=>(
+        <div className="plan-grid">{SELLABLE_PLANS.map(p=>(
           <div key={p.id} className={`plan-card ${plan===p.id?"sel":""} ${p.featured?"featured":""}`} onClick={()=>setPlan(p.id)}>
             {p.featured && <span className="plan-badge">Most Popular</span>}
             <div className="plan-name">{p.name}</div>
