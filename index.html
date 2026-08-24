@@ -2,145 +2,2144 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Prompted To Do This — Apps &amp; Learning Lab</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Work Orders">
+
+<title>AI Work Orders</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
-  :root{
-    --ink:#15212e; --paper:#f6f4ee; --card:#fff; --line:#d8d2c4; --muted:#6b7480;
-    --brass:#b07a26; --qb:#2ca01c; --qb-dark:#108000; --inv:#2c5b8a;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{
-    font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
-    background:var(--paper);color:var(--ink);line-height:1.5;-webkit-font-smoothing:antialiased;
-    background-image:radial-gradient(circle at 1px 1px, rgba(21,33,46,0.045) 1px, transparent 0);
-    background-size:24px 24px;min-height:100vh;
-  }
-  .wrap{max-width:820px;margin:0 auto;padding:44px 20px 60px}
+:root {
+  /* shared shell */
+  --ink: #15212e;
+  --paper: #f6f4ee;
+  --card: #fff;
+  --line: #d8d2c4;
+  --muted: #6b7480;
+  --brass: #b07a26;
+  /* traffic-light step colors */
+  --go: #1f8a3b;
+  --go-soft: #e4f4e8;
+  --go-line: #a8d8b6;
+  --wip: #c4791a;
+  --wip-soft: #fbeed8;
+  --wip-line: #e7c389;
+  --inv: #2c5b8a;
+  --inv-soft: #e6eef6;
+  --inv-line: #a9c4de;
+  --red: #a8341f;
+  /* QuickBooks Online green */
+  --qb: #2ca01c;
+  --qb-dark: #108000;
+  --qb-soft: #e8f5e4;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.5;
+  min-height: 100vh;
+  font-variant-numeric: tabular-nums;
+}
+.mono { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
 
-  header{text-align:center;margin-bottom:36px}
-  .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:3px;
-    text-transform:uppercase;color:var(--brass);font-weight:600;margin-bottom:14px}
-  .brandmark{display:inline-flex;align-items:center;gap:12px;margin-bottom:14px}
-  .brandmark svg{display:block}
-  h1{font-size:30px;font-weight:800;letter-spacing:-0.6px;line-height:1.1}
-  .tagline{font-size:15px;color:var(--muted);max-width:440px;margin:12px auto 0}
-  .rule{height:3px;width:56px;margin:22px auto 0;border-radius:2px;
-    background:linear-gradient(90deg,var(--brass),#d6a24e)}
+/* ─── Landing ─── */
+.landing { min-height: 100vh; display: flex; flex-direction: column; }
+.landing-hero { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 20px; text-align: center; background: linear-gradient(135deg, var(--ink) 0%, #2c3e50 100%); color: #fff; }
+.landing-logo { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px; }
+.landing-tag { font-size: 14px; color: #95a5a6; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 32px; }
+.landing-h1 { font-size: 32px; font-weight: 800; line-height: 1.2; max-width: 600px; margin-bottom: 16px; }
+.landing-sub { font-size: 16px; color: #bdc3c7; max-width: 480px; margin-bottom: 32px; line-height: 1.6; }
+.landing-cta { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
 
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px}
-  @media (max-width:640px){.grid{grid-template-columns:1fr}}
+.btn { padding: 11px 22px; border: none; border-radius: 5px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.15s; min-height: 42px; display: inline-flex; align-items: center; gap: 8px; justify-content: center; }
+.btn-primary { background: var(--qb); color: #fff; }
+.btn-primary:hover { background: var(--qb-dark); }
+.btn-primary:disabled { background: #95a5a6; cursor: not-allowed; }
+.btn-ghost { background: transparent; color: #fff; border: 1.5px solid rgba(255,255,255,0.3); }
+.btn-ghost:hover { background: rgba(255,255,255,0.08); }
+.btn-outline { background: transparent; color: var(--inv); border: 1.5px solid var(--inv); }
+.btn-outline:hover { background: var(--inv-soft); }
+.btn-link { background: transparent; color: var(--go); padding: 4px 8px; text-decoration: underline; border: none; cursor: pointer; font-size: 13px; font-family: inherit; }
+.btn-text { background: transparent; color: var(--go); border: none; cursor: pointer; font-size: 13px; font-weight: 600; padding: 4px 8px; font-family: inherit; }
+.btn-text:hover { text-decoration: underline; }
 
-  .app{background:var(--card);border:1px solid var(--line);border-radius:14px;
-    padding:20px 20px 18px;position:relative;overflow:hidden;
-    display:flex;flex-direction:column;box-shadow:0 1px 3px rgba(21,33,46,0.05)}
-  .app::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px}
-  .app.wo::before{background:var(--qb)}
-  .app.learn::before{background:var(--brass)}
-  .app.soon::before{background:var(--line)}
-  .app-top{display:flex;align-items:center;gap:12px;margin-bottom:12px}
-  .app-ic{width:44px;height:44px;border-radius:11px;flex-shrink:0;
-    display:flex;align-items:center;justify-content:center}
-  .app.wo .app-ic{background:#f4f2ec;overflow:hidden}
-  .app.learn .app-ic{background:#f4f2ec;overflow:hidden}
-  .app-name{font-size:17px;font-weight:800;letter-spacing:-0.3px}
-  .app-kicker{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1.5px;
-    text-transform:uppercase;color:var(--muted);margin-top:2px}
-  .app-desc{font-size:13.5px;color:#4a5563;flex:1;margin-bottom:16px}
-  .app-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  .open{display:inline-flex;align-items:center;gap:7px;text-decoration:none;font-weight:700;
-    font-size:14px;color:#fff;padding:10px 16px;border-radius:9px}
-  .app.wo .open{background:var(--qb)} .app.wo .open:hover{background:var(--qb-dark)}
-  .app.learn .open{background:var(--ink)} .app.learn .open:hover{background:#0d1620}
-  .sub-link{font-size:13px;font-weight:600;color:var(--inv);text-decoration:none}
-  .sub-link:hover{text-decoration:underline}
+/* ─── Auth forms ─── */
+.auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--paper); }
+.auth-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 32px 24px; width: 100%; max-width: 400px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.auth-logo { text-align: center; margin-bottom: 6px; font-size: 22px; font-weight: 800; color: var(--ink); }
+.auth-tag { text-align: center; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 28px; }
+.auth-h2 { font-size: 18px; font-weight: 700; text-align: center; margin-bottom: 6px; }
+.auth-sub { font-size: 13px; color: var(--muted); text-align: center; margin-bottom: 24px; }
+.fg { margin-bottom: 14px; }
+.label { display: block; font-size: 11px; font-weight: 600; color: #5d6d7e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.input { width: 100%; padding: 10px 12px; border: 1.5px solid #d8d2c4; border-radius: 5px; font-size: 15px; font-family: inherit; background: #fff; -webkit-appearance: none; transition: border-color 0.15s; }
+.input:focus { outline: none; border-color: var(--qb); box-shadow: 0 0 0 3px var(--qb-soft); }
+.btn-full { width: 100%; }
+.auth-foot { text-align: center; margin-top: 18px; font-size: 13px; color: #5d6d7e; }
+.alert { padding: 10px 12px; border-radius: 5px; font-size: 13px; margin-bottom: 14px; }
+.alert-error { background: #fadbd8; color: #922b21; border: 1px solid #f1948a; }
+.alert-success { background: var(--qb-soft); color: var(--qb-dark); border: 1px solid #82e0aa; }
+.alert-info { background: var(--inv-soft); color: var(--inv); border: 1px solid var(--inv-line); }
 
-  .app.soon{border-style:dashed;background:transparent;box-shadow:none}
-  .soon-t{font-size:15px;font-weight:700;color:var(--muted)}
-  .soon-d{font-size:13px;color:var(--muted);margin-top:6px}
+/* ─── Plan selector ─── */
+.plan-grid { display: grid; gap: 10px; margin-bottom: 18px; }
+.plan-card { padding: 14px; border: 2px solid var(--line); border-radius: 8px; cursor: pointer; transition: all 0.15s; position: relative; background: #fff; }
+.plan-card:hover { border-color: var(--inv); }
+.plan-card.sel { border-color: var(--go); background: var(--go-soft); }
+.plan-card.featured { border-color: var(--brass); }
+.plan-card.featured.sel { border-color: var(--brass); background: #fef5e7; }
+.plan-badge { position: absolute; top: -8px; right: 8px; background: var(--brass); color: #fff; font-size: 9px; font-weight: 700; padding: 3px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+.plan-name { font-size: 14px; font-weight: 700; }
+.plan-price { font-size: 22px; font-weight: 800; color: var(--ink); margin: 4px 0; }
+.plan-price .per { font-size: 12px; color: var(--muted); font-weight: 500; }
+.plan-features { font-size: 11px; color: #5d6d7e; line-height: 1.5; }
 
-  footer{text-align:center;margin-top:38px;padding-top:22px;border-top:1px solid var(--line);
-    font-size:13px;color:var(--muted)}
-  footer a{color:var(--inv);text-decoration:none;font-weight:600}
-  .foot-mono{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:1px;
-    color:var(--muted);margin-top:10px}
+.wizard-steps { display: flex; gap: 4px; margin-bottom: 24px; }
+.wizard-step { flex: 1; height: 4px; background: var(--line); border-radius: 2px; }
+.wizard-step.done { background: var(--go); }
+.wizard-step.active { background: var(--inv); }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  APP SHELL                                                                  */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.app { min-height: 100vh; display: flex; flex-direction: column; background: var(--paper); }
+
+/* Header */
+.topbar { background: var(--ink); color: #fff; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid var(--brass); }
+.topbar-left { display: flex; align-items: center; gap: 16px; }
+.topbar-logo { font-size: 17px; font-weight: 800; letter-spacing: -0.3px; }
+.tenant-name { font-size: 13px; color: #95a5a6; font-weight: 500; padding-left: 12px; border-left: 1px solid #34495e; }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+
+/* QuickBooks chip */
+.qb-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(44,160,28,0.15); color: #82e6a0; border: 1px solid rgba(44,160,28,0.4); border-radius: 12px; font-size: 11px; font-weight: 600; }
+.qb-chip.off { background: rgba(127,140,141,0.15); color: #95a5a6; border-color: rgba(127,140,141,0.4); }
+.qb-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--qb); box-shadow: 0 0 6px rgba(44,160,28,0.6); }
+.qb-chip.off .qb-dot { background: #7f8c8d; box-shadow: none; }
+
+.user-avatar { width: 30px; height: 30px; border-radius: 50%; background: #34495e; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: #fff; }
+.btn-icon { background: transparent; color: #bdc3c7; border: none; cursor: pointer; padding: 6px; font-size: 13px; font-family: inherit; }
+.btn-icon:hover { color: #fff; }
+
+.main { flex: 1; padding: 20px; max-width: 1200px; margin: 0 auto; width: 100%; }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  3-STEP RIBBON                                                              */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.step-ribbon { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+.step-card { background: #fff; border: 1.5px solid var(--line); border-radius: 8px; padding: 14px 16px; cursor: pointer; transition: all 0.15s; position: relative; min-height: 78px; }
+.step-card:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+.step-num { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.step-title { font-size: 15px; font-weight: 700; color: var(--ink); margin-bottom: 2px; }
+.step-meta { font-size: 11px; color: var(--muted); }
+.step-card.s1 { border-left: 6px solid var(--go); background: linear-gradient(to right, var(--go-soft) 0%, #fff 30%); }
+.step-card.s2 { border-left: 6px solid var(--wip); background: linear-gradient(to right, var(--wip-soft) 0%, #fff 30%); }
+.step-card.s3 { border-left: 6px solid var(--inv); background: linear-gradient(to right, var(--inv-soft) 0%, #fff 30%); }
+.step-card.active { box-shadow: inset 0 0 0 2px currentColor; }
+.step-card.s1.active { color: var(--go); }
+.step-card.s2.active { color: var(--wip); }
+.step-card.s3.active { color: var(--inv); }
+.step-pill { position: absolute; top: 10px; right: 12px; background: var(--wip); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; min-width: 22px; text-align: center; }
+.step-card.s1 .step-pill { background: var(--go); }
+.step-card.s3 .step-pill { background: var(--inv); }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  WORKSHEET (QBO-style)                                                      */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.sheet { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+.sheet-h { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 14px; margin-bottom: 16px; border-bottom: 2px solid var(--line); }
+.sheet-title { font-size: 18px; font-weight: 800; color: var(--ink); }
+.sheet-meta { font-size: 12px; color: var(--muted); }
+
+/* Customer/header strip */
+.hdr-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 16px; margin-bottom: 18px; }
+.hdr-grid .fg { margin: 0; }
+@media (max-width: 700px) { .hdr-grid { grid-template-columns: 1fr; } }
+
+/* QBO line-item grid */
+.linegrid { width: 100%; border-collapse: collapse; }
+.linegrid thead th {
+  background: #fafaf6;
+  font-size: 11px;
+  font-weight: 600;
+  color: #5d6d7e;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1.5px solid var(--line);
+}
+.linegrid thead th.num { text-align: right; }
+.linegrid thead th.cnum { text-align: center; width: 36px; }
+.linegrid tbody td {
+  border-bottom: 1px solid #ecebe5;
+  padding: 0;
+  vertical-align: middle;
+}
+.linegrid tbody tr:hover { background: #fdfcf7; }
+.cell-input {
+  width: 100%;
+  border: 1.5px solid transparent;
+  background: transparent;
+  padding: 10px;
+  font-size: 14px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  border-radius: 4px;
+  -webkit-appearance: none;
+  color: var(--ink);
+}
+.cell-input:hover { background: #fff; border-color: #ecebe5; }
+.cell-input:focus { outline: none; background: #fff; border-color: var(--go); box-shadow: 0 0 0 2px var(--go-soft); }
+.cell-input.num { text-align: right; }
+.cell-amount { padding: 10px; text-align: right; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; font-size: 14px; }
+.row-num { text-align: center; color: var(--muted); font-size: 12px; padding: 0 6px; font-weight: 500; }
+.row-del { padding: 0 8px; text-align: center; }
+.row-del button { background: transparent; border: none; color: #bdc3c7; cursor: pointer; font-size: 16px; padding: 6px; font-family: inherit; }
+.row-del button:hover { color: var(--red); }
+
+.line-tools { display: flex; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+
+/* Totals box */
+.totals { display: flex; justify-content: flex-end; margin-top: 16px; }
+.totals-box { min-width: 240px; }
+.totals-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; color: #5d6d7e; }
+.totals-row.total { border-top: 2px solid var(--ink); padding-top: 10px; margin-top: 6px; font-size: 17px; font-weight: 800; color: var(--ink); }
+.totals-row .val { font-variant-numeric: tabular-nums; }
+
+/* Action bar */
+.action-bar { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  OPEN WO LIST                                                               */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.wo-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--wip);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+.wo-card.invoiced { border-left-color: var(--inv); opacity: 0.75; }
+.wo-meta-l { min-width: 0; }
+.wo-id { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.wo-customer { font-size: 15px; font-weight: 700; color: var(--ink); margin-bottom: 2px; }
+.wo-info { font-size: 12px; color: var(--muted); }
+.wo-meta-r { text-align: right; }
+.wo-amt { font-size: 17px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; margin-bottom: 6px; }
+.wo-pill { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+.wo-pill.open { background: var(--wip-soft); color: var(--wip); }
+.wo-pill.invoiced { background: var(--inv-soft); color: var(--inv); }
+.wo-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line); justify-content: flex-start; }
+.btn-sm { padding: 6px 12px; font-size: 12px; min-height: 32px; }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/*  INVOICE PUSH                                                               */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+.qbo-push-card { background: #fff; border: 1.5px solid var(--inv-line); border-radius: 8px; padding: 24px; text-align: center; }
+.qbo-push-card .red-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--red); margin-right: 6px; vertical-align: middle; }
+.btn-qbo-push {
+  background: #fff;
+  color: var(--inv);
+  border: 1.5px solid var(--inv);
+  padding: 14px 28px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.btn-qbo-push:hover { background: var(--inv-soft); }
+.btn-qbo-push:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
+.empty-state-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.5; }
+.empty-state-h { font-size: 16px; font-weight: 700; color: var(--ink); margin-bottom: 6px; }
+.empty-state-p { font-size: 13px; max-width: 360px; margin: 0 auto; line-height: 1.5; }
+
+  .ac-menu { position:absolute; top:100%; left:0; right:0; z-index:60; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.16); max-height:240px; overflow-y:auto; margin-top:3px; }
+  .ac-item { padding:11px 12px; font-size:14px; cursor:pointer; border-bottom:1px solid #f0eee6; display:flex; justify-content:space-between; gap:8px; align-items:center; }
+  .ac-item:last-child { border-bottom:0; }
+  .ac-item:hover, .ac-item:active { background:#eef6f1; }
+/* Settings modal */
+.modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 20px; }
+.modal { background: #fff; border: 1px solid var(--line); border-radius: 10px; width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; }
+.modal-h { padding: 16px 20px; border-bottom: 2px solid var(--line); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: #fff; z-index: 1; }
+.modal-h h2 { font-size: 17px; font-weight: 800; }
+.modal-body { padding: 20px; }
+.settings-section { margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid #ecebe5; }
+.settings-section:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+.settings-h { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--ink); margin-bottom: 4px; }
+.settings-sub { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.kv-row { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; }
+.kv-row .k { color: var(--muted); }
+.kv-row .v { font-weight: 600; }
+.qbo-status-card { padding: 14px; background: #fafaf6; border-radius: 6px; margin-bottom: 12px; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+@media (max-width: 600px) {
+  .step-ribbon { grid-template-columns: 1fr; }
+  .step-card { min-height: 64px; }
+  .linegrid thead { display: none; }
+  .linegrid, .linegrid tbody, .linegrid tr, .linegrid td { display: block; width: 100%; }
+  .linegrid tr { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 10px; padding: 10px; }
+  .linegrid td { border: none; padding: 4px 0; }
+  .linegrid td::before { content: attr(data-l); display: inline-block; min-width: 80px; font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .linegrid td.cell-amount { text-align: left; }
+  .cell-input.num { text-align: left; }
+}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <div class="eyebrow">Software Studio</div>
-    <div class="brandmark">
-      <svg width="40" height="40" viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#1b2b3a"/><stop offset="1" stop-color="#123a2a"/></linearGradient></defs>
-        <rect x="4" y="4" width="88" height="88" rx="22" fill="url(#g)" stroke="#b07a26" stroke-width="1.5"/>
-        <path d="M30 34 h36 M30 48 h36 M30 62 h22" stroke="#f6f4ee" stroke-width="5" stroke-linecap="round"/>
-        <circle cx="70" cy="62" r="4" fill="#2ca01c"/>
-      </svg>
-      <h1>Prompted To Do This</h1>
-    </div>
-    <p class="tagline">Practical business apps and a hands-on learning lab, built for small-business owners.</p>
-    <div class="rule"></div>
-  </header>
+<div id="root"></div>
 
-  <div class="grid">
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
 
-    <!-- AI Work Orders -->
-    <div class="app wo">
-      <div class="app-top">
-        <div class="app-ic">
-          <img src="https://p2dothis.github.io/prompted2dothis-ai-work-orders/icon-1024.png" alt="AI Work Orders logo" style="width:100%;height:100%;object-fit:cover;border-radius:11px"/>
+const SUPABASE_URL = "https://attneiceahozrxiiybis.supabase.co";
+const SUPABASE_KEY = "sb_publishable_-771YtOZINM04l_x9YFd5g_J1dHL3TF";
+
+const PLANS = [
+  { id:"basic", name:"Basic", price:10, features:["Multi-user work orders","QuickBooks Online sync","Auto-email work orders","Custom service catalog"] },
+  { id:"gps",   name:"+ GPS", price:19, features:["Everything in Basic","GPS truck tracking","Geofence auto-WO","Per-truck location history"] },
+  { id:"pro",   name:"Service Pro", price:29, featured:true, features:["Everything in GPS","Price Levels for QBO included","Customer-tier pricing","Best value"] },
+];
+
+// Employees allowed per subscription plan (active members + pending invites)
+const SEAT_LIMITS = { basic: 5, gps: 10, pro: 20 };
+
+// Stripe LIVE payment links (real charges). To add/enable a plan: give it a live link here AND map its price_id -> plan in the stripe_prices table.
+const STRIPE_LINKS = {
+  basic: "https://buy.stripe.com/8x29AUgEt44f1ei0kQ8so02",
+  gps:   "https://buy.stripe.com/28E5kE4VL44fbSWebG8so01",
+  pro:   "https://buy.stripe.com/14A3cwag57grg9caZu8so03",
+};
+// Paste the Stripe Customer Portal link here to turn on the "Manage billing" button:
+const STRIPE_PORTAL_URL = "";
+
+// Plans sellable right now = those with a payment link configured.
+const SELLABLE_PLANS = PLANS.filter(p => STRIPE_LINKS[p.id]);
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const fmt$ = n => "$" + (Number(n)||0).toFixed(2);
+const today = () => new Date().toISOString().split("T")[0];
+
+// ─── ROOT ────────────────────────────────────────────────────────────────────
+function App() {
+  const [view, setView] = useState("loading");
+  const [user, setUser] = useState(null);
+  const [tenant, setTenant] = useState(null);
+  const [userRole, setUserRole] = useState("tech");
+  const [canInvoice, setCanInvoice] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) loadUser(session.user);
+      else setView("landing");
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (session?.user) loadUser(session.user);
+      else { setUser(null); setTenant(null); setView("landing"); }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const loadUser = async (authUser) => {
+    setUser(authUser);
+    const { data: tu } = await supabase.from("tenant_users")
+      .select("*, tenants(*)")
+      .eq("user_id", authUser.id).eq("active", true).maybeSingle();
+    if (tu?.tenants) {
+      setTenant(tu.tenants);
+      setUserRole(tu.role || "tech");
+      setCanInvoice(!!tu.can_invoice);
+      setView("app");
+      return;
+    }
+    // Check for pending invite by email
+    const { data: invite } = await supabase.from("tenant_invites")
+      .select("*, tenants(*)")
+      .eq("email", authUser.email)
+      .is("accepted_at", null)
+      .maybeSingle();
+    if (invite?.tenants) {
+      // Accept invite: create tenant_users row, mark invite accepted
+      await supabase.from("tenant_users").insert({
+        tenant_id: invite.tenant_id,
+        user_id: authUser.id,
+        email: authUser.email,
+        role: invite.role,
+        can_invoice: invite.can_invoice,
+        active: true,
+      });
+      await supabase.from("tenant_invites").update({ accepted_at: new Date().toISOString() }).eq("id", invite.id);
+      setTenant(invite.tenants);
+      setUserRole(invite.role);
+      setCanInvoice(!!invite.can_invoice);
+      setView("app");
+      return;
+    }
+    // No tenant and no invite → setup wizard (new company)
+    setView("wizard");
+  };
+
+  if (view === "loading") return <div className="auth-wrap"><div>Loading…</div></div>;
+  if (view === "landing") return <Landing onSignup={()=>setView("signup")} onSignin={()=>setView("signin")} />;
+  if (view === "signin")  return <SignIn onSwitchSignup={()=>setView("signup")} onBack={()=>setView("landing")} />;
+  if (view === "signup")  return <SignUp onSwitchSignin={()=>setView("signin")} onBack={()=>setView("landing")} />;
+  if (view === "wizard")  return <SetupWizard user={user} onComplete={(t)=>{setTenant(t);setView("app");}} />;
+  if (view === "app")     return <WorkOrderApp user={user} tenant={tenant} userRole={userRole} canInvoice={canInvoice} />;
+  return null;
+}
+
+// ─── LANDING ─────────────────────────────────────────────────────────────────
+function Landing({ onSignup, onSignin }) {
+  return (
+    <div className="landing">
+      <div className="landing-hero">
+        <div className="landing-logo">AI Work Orders</div>
+        <div className="landing-tag">By Prompted To Do This</div>
+        <h1 className="landing-h1">Work orders that flow directly to QuickBooks.</h1>
+        <p className="landing-sub">Stop double-entering data. Create work orders in the field, auto-sync to QuickBooks invoices, get paid faster.</p>
+        <div className="landing-cta">
+          <button className="btn btn-primary" onClick={onSignup}>Start Free 30-Day Trial</button>
+          <button className="btn btn-ghost" onClick={onSignin}>Sign In</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── AUTH FORMS ──────────────────────────────────────────────────────────────
+function SignIn({ onSwitchSignup, onBack }) {
+  const [email,setEmail]=useState(""); const [password,setPassword]=useState("");
+  const [err,setErr]=useState(""); const [loading,setLoading]=useState(false);
+  const submit=async e=>{e.preventDefault();setErr("");setLoading(true);
+    const {error}=await supabase.auth.signInWithPassword({email,password});
+    if(error)setErr(error.message); setLoading(false);};
+  return (
+    <div className="auth-wrap"><div className="auth-card">
+      <div className="auth-logo">AI Work Orders</div>
+      <div className="auth-tag">By Prompted To Do This</div>
+      <h2 className="auth-h2">Welcome back</h2>
+      <p className="auth-sub">Sign in to your account</p>
+      {err && <div className="alert alert-error">{err}</div>}
+      <form onSubmit={submit}>
+        <div className="fg"><label className="label">Email</label>
+          <input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoFocus/></div>
+        <div className="fg"><label className="label">Password</label>
+          <input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} required/></div>
+        <button type="submit" className="btn btn-primary btn-full" disabled={loading}>{loading?"Signing in…":"Sign In"}</button>
+      </form>
+      <div className="auth-foot">New here? <button className="btn-link" onClick={onSwitchSignup}>Create an account</button></div>
+      <div className="auth-foot"><button className="btn-link" onClick={onBack}>← Back</button></div>
+    </div></div>);
+}
+
+function SignUp({ onSwitchSignin, onBack }) {
+  const [email,setEmail]=useState(""); const [password,setPassword]=useState("");
+  const [err,setErr]=useState(""); const [success,setSuccess]=useState(false); const [loading,setLoading]=useState(false);
+  const submit=async e=>{e.preventDefault();setErr("");setLoading(true);
+    const {error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin}});
+    if(error)setErr(error.message); else setSuccess(true); setLoading(false);};
+  if(success) return (
+    <div className="auth-wrap"><div className="auth-card">
+      <div className="auth-logo">AI Work Orders</div>
+      <div className="auth-tag">By Prompted To Do This</div>
+      <div className="alert alert-success"><strong>Check your email!</strong> We sent a confirmation link to <strong>{email}</strong>. Click it to verify, then sign in.</div>
+      <button className="btn btn-primary btn-full" onClick={onSwitchSignin}>Go to Sign In</button>
+    </div></div>);
+  return (
+    <div className="auth-wrap"><div className="auth-card">
+      <div className="auth-logo">AI Work Orders</div>
+      <div className="auth-tag">By Prompted To Do This</div>
+      <h2 className="auth-h2">Create your account</h2>
+      <p className="auth-sub">Start your free 30-day trial. No credit card required.</p>
+      {err && <div className="alert alert-error">{err}</div>}
+      <form onSubmit={submit}>
+        <div className="fg"><label className="label">Email</label>
+          <input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoFocus/></div>
+        <div className="fg"><label className="label">Password (min 6 chars)</label>
+          <input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={6}/></div>
+        <button type="submit" className="btn btn-primary btn-full" disabled={loading}>{loading?"Creating account…":"Create Account & Start Trial"}</button>
+      </form>
+      <div className="auth-foot">Have an account? <button className="btn-link" onClick={onSwitchSignin}>Sign in</button></div>
+      <div className="auth-foot"><button className="btn-link" onClick={onBack}>← Back</button></div>
+    </div></div>);
+}
+
+// ─── SETUP WIZARD ────────────────────────────────────────────────────────────
+function SetupWizard({ user, onComplete }) {
+  const [step,setStep]=useState(1); const [companyName,setCompanyName]=useState("");
+  const [phone,setPhone]=useState(""); const [industry,setIndustry]=useState("service");
+  const [plan,setPlan]=useState((SELLABLE_PLANS[0]||PLANS[0]).id); const [err,setErr]=useState(""); const [loading,setLoading]=useState(false);
+  const finish=async()=>{setErr("");setLoading(true);
+    try{
+      const {data:t,error:tErr}=await supabase.from("tenants").insert({name:companyName,owner_email:user.email,industry,phone,plan,trial_ends_at:new Date(Date.now()+30*24*60*60*1000).toISOString()}).select().single();
+      if(tErr) throw tErr;
+      const {error:tuErr}=await supabase.from("tenant_users").insert({tenant_id:t.id,user_id:user.id,email:user.email,role:"owner",can_invoice:true,active:true});
+      if(tuErr) throw tuErr;
+      onComplete(t);
+    }catch(e){setErr(e.message);}
+    setLoading(false);};
+  const next=()=>{if(step===1&&!companyName.trim()){setErr("Company name is required");return;}setErr("");setStep(step+1);};
+  return (
+    <div className="auth-wrap"><div className="auth-card" style={{maxWidth:460}}>
+      <div className="auth-logo">Welcome to AI Work Orders</div>
+      <div className="auth-tag">Let's get you set up — 2 minutes</div>
+      <div className="wizard-steps">
+        <div className={`wizard-step ${step>=1?"active":""} ${step>1?"done":""}`}/>
+        <div className={`wizard-step ${step>=2?"active":""} ${step>2?"done":""}`}/>
+        <div className={`wizard-step ${step>=3?"active":""}`}/>
+      </div>
+      {err && <div className="alert alert-error">{err}</div>}
+      {step===1 && <>
+        <h2 className="auth-h2">Step 1: Your business</h2>
+        <p className="auth-sub">Tell us about your company.</p>
+        <div className="fg"><label className="label">Company Name</label>
+          <input className="input" value={companyName} onChange={e=>setCompanyName(e.target.value)} placeholder="ACME Service, Inc." autoFocus/></div>
+        <div className="fg"><label className="label">Phone</label>
+          <input className="input" type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="(555) 555-5555"/></div>
+        <div className="fg"><label className="label">Industry</label>
+          <select className="input" value={industry} onChange={e=>setIndustry(e.target.value)}>
+            <option value="service">General Service</option>
+            <option value="tire">Tire / Wheel Service</option>
+            <option value="hvac">HVAC</option>
+            <option value="plumbing">Plumbing</option>
+            <option value="electrical">Electrical</option>
+            <option value="landscaping">Landscaping</option>
+            <option value="pest">Pest Control</option>
+            <option value="other">Other</option>
+          </select></div>
+        <button className="btn btn-primary btn-full" onClick={next}>Next →</button>
+      </>}
+      {step===2 && <>
+        <h2 className="auth-h2">Step 2: Pick your plan</h2>
+        <p className="auth-sub">All plans start with a 30-day free trial.</p>
+        <div className="plan-grid">{SELLABLE_PLANS.map(p=>(
+          <div key={p.id} className={`plan-card ${plan===p.id?"sel":""} ${p.featured?"featured":""}`} onClick={()=>setPlan(p.id)}>
+            {p.featured && <span className="plan-badge">Most Popular</span>}
+            <div className="plan-name">{p.name}</div>
+            <div className="plan-price">${p.price}<span className="per">/mo</span></div>
+            <div className="plan-features">{p.features.join(" • ")}</div>
+          </div>))}</div>
+        <button className="btn btn-primary btn-full" onClick={next}>Next →</button>
+        <div className="auth-foot"><button className="btn-link" onClick={()=>setStep(1)}>← Back</button></div>
+      </>}
+      {step===3 && <>
+        <h2 className="auth-h2">Step 3: Confirm</h2>
+        <p className="auth-sub">Review and create your account.</p>
+        <div style={{padding:14,marginBottom:14,background:"#fafaf6",border:"1px solid var(--line)",borderRadius:6}}>
+          <div style={{fontSize:13,marginBottom:6}}><strong>Company:</strong> {companyName}</div>
+          <div style={{fontSize:13,marginBottom:6}}><strong>Industry:</strong> {industry}</div>
+          <div style={{fontSize:13,marginBottom:6}}><strong>Plan:</strong> {PLANS.find(p=>p.id===plan)?.name} — ${PLANS.find(p=>p.id===plan)?.price}/mo</div>
+          <div style={{fontSize:12,color:"var(--muted)",marginTop:8}}>30-day free trial. Cancel anytime.</div>
+        </div>
+        <button className="btn btn-primary btn-full" onClick={finish} disabled={loading}>{loading?"Setting up…":"Create my AI Work Orders account"}</button>
+        <div className="auth-foot"><button className="btn-link" onClick={()=>setStep(2)}>← Back</button></div>
+      </>}
+    </div></div>);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WORK ORDER APP — three-step flow
+// ═══════════════════════════════════════════════════════════════════════════
+function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
+  const [step, setStep] = useState(1);
+  const [workOrders, setWorkOrders] = useState([]);
+  const [editingWO, setEditingWO] = useState(null);
+  const [qboConnected, setQboConnected] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settings, setSettings] = useState({ hide_rates_from_techs: false });
+
+  const loadWOs = async () => {
+    const { data } = await supabase.from("work_orders")
+      .select("*").eq("tenant_id", tenant.id)
+      .order("created_at", { ascending: false });
+    setWorkOrders(data || []);
+  };
+  const loadQbo = async () => {
+    const { data } = await supabase.from("qbo_tokens").select("tenant_id").eq("tenant_id", tenant.id).maybeSingle();
+    setQboConnected(!!data);
+  };
+  const loadSettings = async () => {
+    const { data } = await supabase.from("tenant_settings").select("*").eq("tenant_id", tenant.id).maybeSingle();
+    if (data) setSettings(data);
+  };
+
+  useEffect(() => {
+    Promise.all([loadWOs(), loadQbo(), loadSettings()]).then(() => setLoading(false));
+  }, [tenant.id]);
+
+  // Hide rates from techs if setting is on and user is a tech (not owner/admin)
+  const hideRates = settings.hide_rates_from_techs && userRole === "tech";
+  const isAdmin = userRole === "owner" || userRole === "admin";
+  const isViewer = userRole === "viewer";
+  const canCreate = !isViewer;                              // WO-only, WO+invoice, admin
+  const mayInvoice = !isViewer && (isAdmin || canInvoice);  // WO+invoice or admin
+  useEffect(() => {
+    if (isViewer && step !== 2 && step !== 3) setStep(2);
+    else if (!isAdmin && step === 4) setStep(2);
+    else if (!canCreate && (step === 1 || step === 5)) setStep(2);
+  }, [step, isViewer, isAdmin, canCreate]);
+
+  // Grace-banner gating: never blocks the app, just nudges when the trial has
+  // ended and there's no active subscription.
+  const subActive = ["active","trialing","past_due"].includes(tenant.subscription_status);
+  const trialEndsAt = tenant.trial_ends_at ? new Date(tenant.trial_ends_at) : null;
+  const trialEnded = trialEndsAt ? (trialEndsAt.getTime() < Date.now()) : false;
+  const needsSub = !subActive && trialEnded;
+
+  const openCount = workOrders.filter(w => w.status === "open").length;
+  const signOut = async () => { await supabase.auth.signOut(); };
+  const initials = (user.email[0] || "U").toUpperCase();
+
+  return (
+    <div className="app">
+      <div className="topbar">
+        <div className="topbar-left">
+          <div className="topbar-logo">AI Work Orders <span style={{fontSize:9,opacity:0.55,fontWeight:400}}>v2·pricing</span></div>
+          <div className="tenant-name">{tenant.name}</div>
+        </div>
+        <div className="topbar-right">
+          <span className={`qb-chip ${qboConnected ? "" : "off"}`}>
+            <span className="qb-dot"/>
+            {qboConnected ? "QuickBooks Connected" : "QuickBooks Disconnected"}
+          </span>
+          <button className="btn-icon" onClick={()=>setShowSettings(true)} title="Settings">⚙</button>
+          <div className="user-avatar">{initials}</div>
+          <button className="btn-icon" onClick={signOut}>Sign out</button>
+        </div>
+      </div>
+
+      {needsSub && (
+        <div style={{background:"#fbeed8",borderBottom:"1px solid #e7c389",padding:"10px 16px",fontSize:13,textAlign:"center",color:"#7a4e12"}}>
+          Your trial has ended — {isAdmin
+            ? <button className="btn-text" onClick={()=>setShowSettings(true)} style={{color:"#7a4e12",fontWeight:700,textDecoration:"underline",padding:0}}>subscribe to keep AI Work Orders</button>
+            : <span style={{fontWeight:600}}>ask your owner to subscribe.</span>}
+        </div>
+      )}
+
+      {showSettings && (
+        <Settings tenant={tenant} user={user} userRole={userRole} qboConnected={qboConnected}
+          settings={settings}
+          onClose={()=>setShowSettings(false)}
+          onQboChange={loadQbo}
+          onSettingsChange={loadSettings}/>
+      )}
+
+      <div className="main">
+        <StepRibbon step={step} setStep={setStep} openCount={openCount} hasEditing={!!editingWO} canCreate={canCreate} isAdmin={isAdmin} />
+
+        {step === 1 && canCreate && (
+          <CreateWO
+            tenant={tenant} user={user} hideRates={hideRates}
+            onSaved={() => { loadWOs(); setStep(2); }}
+          />
+        )}
+
+        {step === 2 && (
+          <OpenList
+            workOrders={workOrders} hideRates={hideRates}
+            loading={loading}
+            onPickInvoice={(wo) => { setEditingWO(wo); setStep(3); }}
+            onCreateNew={() => setStep(1)}
+            onEditInvoiced={(wo) => { setEditingWO(wo); setStep(5); }}
+            onEditOpen={(wo) => { setEditingWO(wo); setStep(5); }}
+            qboConnected={qboConnected}
+            user={user}
+            onReload={loadWOs}
+            mayInvoice={mayInvoice}
+            canCreate={canCreate}
+            printerEmail={settings.printer_email || ""}
+          />
+        )}
+
+        {step === 3 && (
+          <InvoicePush
+            wo={editingWO}
+            qboConnected={qboConnected}
+            user={user} hideRates={hideRates} userRole={userRole} mayInvoice={mayInvoice}
+            onDone={() => { loadWOs(); setEditingWO(null); setStep(2); }}
+            onBack={() => setStep(2)}
+          />
+        )}
+
+        {step === 4 && isAdmin && <PriceBook tenant={tenant} />}
+
+        {step === 5 && canCreate && (
+          <CreateWO
+            tenant={tenant} user={user} hideRates={hideRates}
+            editing={editingWO}
+            onUpdated={(data) => { loadWOs(); setEditingWO(null); setStep(2); if (data && data.invoiceUrl) { try { window.open(data.invoiceUrl, "_blank"); } catch(e){} } }}
+            onSaved={() => { loadWOs(); setStep(2); }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── STEP RIBBON ────────────────────────────────────────────────────────────
+function StepRibbon({ step, setStep, openCount, hasEditing, canCreate, isAdmin }) {
+  return (
+    <div className="step-ribbon">
+      {canCreate && (
+      <div className={`step-card s1 ${step===1?"active":""}`} onClick={()=>setStep(1)}>
+        <div className="step-num">Step 1</div>
+        <div className="step-title">Create Work Order</div>
+        <div className="step-meta">New WO — customer, technician, lines</div>
+      </div>
+      )}
+      <div className={`step-card s2 ${step===2?"active":""}`} onClick={()=>setStep(2)}>
+        <div className="step-num">Step 2</div>
+        <div className="step-title">Open Work Orders</div>
+        <div className="step-meta">Awaiting invoice</div>
+        {openCount > 0 && <div className="step-pill">{openCount}</div>}
+      </div>
+      <div className={`step-card s3 ${step===3?"active":""}`}
+        onClick={()=>{ if(hasEditing) setStep(3); }}
+        style={{opacity: hasEditing ? 1 : 0.5, cursor: hasEditing ? "pointer" : "default"}}>
+        <div className="step-num">Step 3</div>
+        <div className="step-title">Create Invoice → QBO</div>
+        <div className="step-meta">Push to QuickBooks</div>
+      </div>
+      {isAdmin && (
+      <div className={`step-card ${step===4?"active":""}`} onClick={()=>setStep(4)}>
+        <div className="step-num">Setup</div>
+        <div className="step-title">Price Book</div>
+        <div className="step-meta">Tiers · import list</div>
+      </div>
+      )}
+    </div>
+  );
+}
+
+// ─── STEP 1: CREATE WORK ORDER ───────────────────────────────────────────────
+function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
+  const newLine = () => ({ item: "", desc: "", qty: "", rate: 0 });
+  const [date, setDate] = useState(editing?.date || today());
+  const [customer, setCustomer] = useState(editing?.customer || "");
+  const [technician, setTechnician] = useState(editing?.technician || "");
+  const [lines, setLines] = useState(editing?.lines?.length ? editing.lines.map(l=>({...l})) : [newLine(), newLine()]);
+  const [notes, setNotes] = useState(editing?.notes || "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  // ── Price-level integration (autocomplete + auto-price when known) ──
+  const [customers, setCustomers] = useState([]);
+  const [priceLevels, setPriceLevels] = useState([]);
+  const [catalog, setCatalog] = useState([]);
+  const [customerId, setCustomerId] = useState(null);
+  const [tierName, setTierName] = useState("");
+  const [custOpen, setCustOpen] = useState(false);
+  const [activeItem, setActiveItem] = useState(-1);
+
+  useEffect(() => {
+    (async () => {
+      const [cu, pl, sc, qi, cs] = await Promise.all([
+        supabase.from("customers").select("id,display_name,primary_price_level_id").eq("tenant_id", tenant.id).eq("active", true),
+        supabase.from("price_levels").select("id,name,rank").eq("tenant_id", tenant.id).order("rank"),
+        supabase.from("service_catalog").select("id,name,sku,default_rate").eq("tenant_id", tenant.id),
+        supabase.from("qbo_items").select("id,name,sku,price").eq("tenant_id", tenant.id),
+        supabase.from("custom_skus").select("id,name,sku,price").eq("tenant_id", tenant.id),
+      ]);
+      setCustomers(cu.data || []);
+      setPriceLevels(pl.data || []);
+      if (editing && editing.customer) {
+        const ec = (cu.data||[]).find(x => (x.display_name||"").toLowerCase() === editing.customer.trim().toLowerCase());
+        if (ec) { setCustomerId(ec.id); const et=(pl.data||[]).find(p=>p.id===ec.primary_price_level_id); setTierName(et?et.name:""); }
+      }
+      const cat = [];
+      (sc.data||[]).forEach(x => cat.push({ source:"service", id:x.id, name:x.name, sku:x.sku, base:Number(x.default_rate)||0 }));
+      (qi.data||[]).forEach(x => cat.push({ source:"qbo", id:x.id, name:x.name, sku:x.sku, base:Number(x.price)||0 }));
+      (cs.data||[]).forEach(x => cat.push({ source:"custom", id:x.id, name:x.name, sku:x.sku, base:Number(x.price)||0 }));
+      setCatalog(cat);
+    })();
+  }, [tenant.id]);
+
+  const findCustomer = (name) => customers.find(c => (c.display_name||"").toLowerCase() === name.trim().toLowerCase());
+  const findItem = (name) => { const q = name.trim().toLowerCase(); return catalog.find(x => (x.name||"").toLowerCase()===q || (x.sku||"").toLowerCase()===q); };
+  const custMatches = (customer.trim() ? customers.filter(c => (c.display_name||"").toLowerCase().includes(customer.trim().toLowerCase())) : customers).slice(0, 8);
+  const itemMatches = (val) => { const q = (val||"").trim().toLowerCase(); return (q ? catalog.filter(x => (x.name||"").toLowerCase().includes(q) || (x.sku||"").toLowerCase().includes(q)) : catalog).slice(0, 10); };
+
+  const resolveRate = async (custId, src, itemId, base) => {
+    if (custId && src && itemId) {
+      const { data } = await supabase.rpc("fn_resolve_price", { p_customer_id: custId, p_item_source: src, p_item_id: itemId });
+      if (data && data[0]) return Number(data[0].final_unit_price);
+    }
+    return base;
+  };
+
+  const onCustomerChange = (name) => {
+    setCustomer(name);
+    const c = findCustomer(name);
+    const cid = c ? c.id : null;
+    setCustomerId(cid);
+    setTierName(c && c.primary_price_level_id ? ((priceLevels.find(p=>p.id===c.primary_price_level_id)||{}).name || "") : "");
+    if (cid) {
+      lines.forEach((l, i) => {
+        if (l.item_source && l.item_id) {
+          resolveRate(cid, l.item_source, l.item_id, l.base_rate!=null?l.base_rate:l.rate)
+            .then(r => setLines(cur => cur.map((x, idx) => idx===i ? { ...x, rate: r } : x)));
+        }
+      });
+    }
+  };
+
+  const onItemChange = async (i, name) => {
+    const item = findItem(name);
+    if (item) {
+      const rate = await resolveRate(customerId, item.source, item.id, item.base);
+      setLines(ls => ls.map((l,idx)=>idx===i ? { ...l, item:name, item_source:item.source, item_id:item.id, base_rate:item.base, rate } : l));
+    } else {
+      setLines(ls => ls.map((l,idx)=>idx===i ? { ...l, item:name, item_source:null, item_id:null } : l));
+    }
+  };
+
+  const updateLine = (i, patch) => setLines(ls => ls.map((l,idx)=>idx===i?{...l,...patch}:l));
+  const addLine = () => setLines(ls => [...ls, newLine()]);
+  const delLine = (i) => setLines(ls => ls.length > 1 ? ls.filter((_,idx)=>idx!==i) : ls);
+  const clearLines = () => setLines([newLine(), newLine()]);
+
+  const qtyOf = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
+  const total = useMemo(() => lines.reduce((s,l) => s + qtyOf(l) * (Number(l.rate)||0), 0), [lines]);
+
+  const save = async () => {
+    setErr("");
+    if (!customer.trim()) { setErr("Customer is required"); return; }
+    const validLines = lines.filter(l => l.item.trim() || l.desc.trim() || Number(l.qty) || Number(l.rate));
+    if (validLines.length === 0) { setErr("Add at least one line item"); return; }
+
+    const newLines = validLines.map(l => ({ ...l, qty: qtyOf(l), rate: Number(l.rate)||0 }));
+
+    if (editing) {
+      setSaving(true);
+      try {
+        await supabase.from("work_orders").update({ customer: customer.trim(), customer_id: customerId, technician: technician.trim(), date, lines: newLines, notes }).eq("id", editing.id);
+        if (editing.invoice_qbo_id) {
+          // Already invoiced -> push the change to the QuickBooks invoice
+          const { data, error } = await supabase.functions.invoke("qbo-update-invoice", {
+            body: { invoice_id: editing.invoice_qbo_id, tenant_id: tenant.id, wo: { ...editing, customer: customer.trim(), technician: technician.trim(), date, lines: newLines } },
+          });
+          if (error) throw new Error(error.message);
+          if (!data || !data.success) throw new Error((data && data.error) || "Update failed");
+          onUpdated ? onUpdated(data) : onSaved();
+        } else {
+          // Open work order (not invoiced yet) -> save changes to Supabase only
+          onUpdated ? onUpdated(null) : onSaved();
+        }
+      } catch (e) { setErr(e.message); }
+      setSaving(false);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { data: num, error: numErr } = await supabase.rpc("fn_next_wo_number", { p_tenant_id: tenant.id });
+      if (numErr) throw numErr;
+      const woId = String(num);
+
+      const { error } = await supabase.from("work_orders").insert({
+        id: woId,
+        tenant_id: tenant.id,
+        date,
+        customer: customer.trim(),
+        customer_id: customerId,
+        technician: technician.trim(),
+        lines: newLines,
+        status: "open",
+        notes,
+        created_by: user.id,
+      });
+      if (error) throw error;
+      onSaved();
+    } catch (e) {
+      setErr(e.message);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="sheet">
+      <div className="sheet-h">
         <div>
-          <div class="app-name">AI Work Orders</div>
-          <div class="app-kicker">Field → QuickBooks</div>
+          <div className="sheet-title">{editing ? (editing.invoice_qbo_id ? `Edit Invoice #${editing.invoice_no || editing.id}` : `Edit Work Order #${editing.id}`) : "New Work Order"}</div>
+          <div className="sheet-meta">{editing ? (editing.invoice_qbo_id ? "Change lines or rates, then update the QuickBooks invoice" : "Change lines or rates, then save") : <>Fill out like a QuickBooks invoice — save when ready · <b>{customers.length}</b> customers, <b>{catalog.length}</b> items loaded</>}</div>
         </div>
       </div>
-      <div class="app-desc">Create work orders in the field, price them by customer tier, and push clean invoices straight to QuickBooks. Multi-user with role permissions.</div>
-      <div class="app-actions">
-        <a class="open" href="https://p2dothis.github.io/prompted2dothis-ai-work-orders/">Open the app &rarr;</a>
-        <a class="sub-link" href="https://p2dothis.github.io/prompted2dothis-ai-work-orders/">Install on a phone</a>
+
+      {err && <div className="alert alert-error">{err}</div>}
+
+      <div className="hdr-grid">
+        <div className="fg" style={{position:"relative"}}>
+          <label className="label">Customer {tierName && <span style={{color:"var(--brass)",fontWeight:700}}>· {tierName}</span>}</label>
+          <input className="input" value={customer}
+            onChange={e=>{ onCustomerChange(e.target.value); setCustOpen(true); }}
+            onFocus={()=>setCustOpen(true)}
+            onBlur={()=>setTimeout(()=>setCustOpen(false),200)}
+            placeholder="Customer name" autoComplete="off" autoFocus/>
+          {custOpen && custMatches.length>0 && (
+            <div className="ac-menu">
+              {custMatches.map(c=>(
+                <div key={c.id} className="ac-item"
+                  onMouseDown={e=>{ e.preventDefault(); onCustomerChange(c.display_name); setCustOpen(false); }}>
+                  <span>{c.display_name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="fg">
+          <label className="label">Date</label>
+          <input className="input" type="date" value={date} onChange={e=>setDate(e.target.value)}/>
+        </div>
+        <div className="fg">
+          <label className="label">Technician</label>
+          <input className="input" value={technician} onChange={e=>setTechnician(e.target.value)} placeholder="Tech name"/>
+        </div>
+      </div>
+
+      <table className="linegrid">
+        <thead>
+          <tr>
+            <th className="cnum">#</th>
+            <th style={{width: hideRates ? "30%" : "24%"}}>Product/Service</th>
+            <th>Description</th>
+            <th className="num" style={{width:"10%"}}>Qty</th>
+            {!hideRates && <th className="num" style={{width:"12%"}}>Rate</th>}
+            {!hideRates && <th className="num" style={{width:"14%"}}>Amount</th>}
+            <th style={{width:"36px"}}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((l,i)=>(
+            <tr key={i}>
+              <td className="row-num">{i+1}</td>
+              <td data-l="Product/Service" style={{position:"relative"}}>
+                <input className="cell-input" value={l.item}
+                  onChange={e=>{ onItemChange(i,e.target.value); setActiveItem(i); }}
+                  onFocus={()=>setActiveItem(i)}
+                  onBlur={()=>setTimeout(()=>setActiveItem(-1),200)}
+                  placeholder="Service or SKU" autoComplete="off"/>
+                {activeItem===i && itemMatches(l.item).length>0 && (
+                  <div className="ac-menu">
+                    {itemMatches(l.item).map(x=>(
+                      <div key={x.source+x.id} className="ac-item"
+                        onMouseDown={e=>{ e.preventDefault(); onItemChange(i, x.name); setActiveItem(-1); }}>
+                        <span>{x.name}</span>
+                        <span style={{color:"var(--muted)",fontSize:11}}>{x.base?("$"+Number(x.base).toFixed(2)):""}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </td>
+              <td data-l="Description">
+                <input className="cell-input" value={l.desc} onChange={e=>updateLine(i,{desc:e.target.value})} placeholder="Detail"/>
+              </td>
+              <td data-l="Qty">
+                <input className="cell-input num" type="number" step="0.01" placeholder="1" value={l.qty} onFocus={e=>e.target.select()} onChange={e=>updateLine(i,{qty:e.target.value})}/>
+              </td>
+              {!hideRates && <td data-l="Rate">
+                <input className="cell-input num" type="number" step="0.01" value={l.rate} onChange={e=>updateLine(i,{rate:e.target.value})}/>
+              </td>}
+              {!hideRates && <td data-l="Amount" className="cell-amount">{fmt$(qtyOf(l)*(Number(l.rate)||0))}</td>}
+              <td className="row-del"><button onClick={()=>delLine(i)} title="Delete">✕</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="line-tools">
+        <button className="btn-text" onClick={addLine}>＋ Add lines</button>
+        <button className="btn-text" onClick={clearLines} style={{color:"var(--red)"}}>✕ Clear all lines</button>
+      </div>
+
+      <div className="fg">
+        <label className="label">Notes</label>
+        <textarea className="input" rows="2" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional notes (internal)"></textarea>
+      </div>
+
+      {!hideRates && (
+        <div className="totals">
+          <div className="totals-box">
+            <div className="totals-row"><span>Subtotal</span><span className="val">{fmt$(total)}</span></div>
+            <div className="totals-row total"><span>Total</span><span className="val">{fmt$(total)}</span></div>
+          </div>
+        </div>
+      )}
+
+      <div className="action-bar">
+        <button className="btn btn-primary" onClick={save} disabled={saving}>
+          {editing ? (editing.invoice_qbo_id ? (saving ? "Updating…" : "Update QuickBooks Invoice") : (saving ? "Saving…" : "Save Changes")) : (saving ? "Saving…" : "Save Work Order")}
+        </button>
       </div>
     </div>
+  );
+}
 
-    <!-- Learning Lab -->
-    <div class="app learn">
-      <div class="app-top">
-        <div class="app-ic">
-          <img src="p2dt-logo-512.png" alt="Learning Lab logo" style="width:100%;height:100%;object-fit:cover;border-radius:11px"/>
+// ─── PRINTER + PDF ───────────────────────────────────────────────────────────
+function buildWoPdf(wo, hideRates){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const lines = wo.lines || [];
+  doc.setFontSize(18); doc.setFont(undefined,"bold");
+  doc.text("WORK ORDER", 14, 20);
+  doc.setFontSize(12); doc.text("#"+wo.id, 196, 20, {align:"right"});
+  doc.setFontSize(10); doc.setFont(undefined,"normal");
+  doc.text("Customer: "+(wo.customer||""), 14, 32);
+  doc.text("Date: "+(wo.date||"")+"     Tech: "+(wo.technician||"—"), 14, 38);
+  doc.line(14, 44, 196, 44);
+  let y = 52;
+  doc.setFont(undefined,"bold");
+  doc.text("Qty", 14, y); doc.text("Item", 32, y);
+  if(!hideRates){ doc.text("Rate", 168, y, {align:"right"}); doc.text("Amount", 196, y, {align:"right"}); }
+  y += 2; doc.line(14, y, 196, y); y += 7; doc.setFont(undefined,"normal");
+  let total = 0;
+  for(const l of lines){
+    const qty = (l.qty===""||l.qty==null)?1:(Number(l.qty)||0);
+    const amt = qty*(Number(l.rate)||0); total += amt;
+    doc.text(String(qty), 14, y);
+    const label = String(l.item||"") + (l.desc ? (" — "+l.desc) : "");
+    const wrapped = doc.splitTextToSize(label, 128);
+    doc.text(wrapped, 32, y);
+    if(!hideRates){ doc.text(fmt$(Number(l.rate)||0), 168, y, {align:"right"}); doc.text(fmt$(amt), 196, y, {align:"right"}); }
+    y += 6 + (wrapped.length-1)*5;
+    if(y > 270){ doc.addPage(); y = 20; }
+  }
+  if(!hideRates){ y += 3; doc.line(150, y, 196, y); y += 7; doc.setFont(undefined,"bold"); doc.text("TOTAL", 150, y, {align:"right"}); doc.text(fmt$(total), 196, y, {align:"right"}); }
+  if(wo.notes){ y += 12; doc.setFont(undefined,"normal"); doc.setFontSize(9); doc.text(doc.splitTextToSize("Notes: "+wo.notes, 182), 14, y); }
+  return doc.output("datauristring").split("base64,")[1];
+}
+
+// ─── STEP 2: OPEN WO LIST ────────────────────────────────────────────────────
+function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate, printerEmail }) {
+  const open = workOrders.filter(w => w.status === "open");
+  const recent = workOrders.filter(w => w.status === "invoiced").slice(0, 5);
+
+  const woTotal = (wo) => (wo.lines || []).reduce((s,l) => s + (Number(l.qty)||0)*(Number(l.rate)||0), 0);
+
+  const [printMsg, setPrintMsg] = useState("");
+  const doPrint = async (wo) => {
+    if (!printerEmail) { setPrintMsg("Add your printer email in Settings first"); setTimeout(()=>setPrintMsg(""), 4500); return; }
+    try {
+      setPrintMsg("Sending WO #"+wo.id+" to the printer…");
+      const pdf = buildWoPdf(wo, hideRates);
+      const { data, error } = await supabase.functions.invoke("email-print", { body: { to: printerEmail, subject:"Work Order #"+wo.id+" — "+wo.customer, filename:"WO-"+wo.id+".pdf", pdf_base64: pdf } });
+      if (error) throw new Error(error.message);
+      if (data && data.error) throw new Error(typeof data.error==="string"?data.error:JSON.stringify(data.error));
+      setPrintMsg("✓ Sent WO #"+wo.id+" to the printer");
+    } catch(e) { setPrintMsg("Print failed: "+e.message); }
+    setTimeout(()=>setPrintMsg(""), 5000);
+  };
+
+  // ── Batch invoicing ──
+  const [selected, setSelected] = useState({});
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchResult, setBatchResult] = useState(null);
+  const selectedIds = open.filter(w => selected[w.id]).map(w => w.id);
+  const toggleOne = (id) => setSelected(s => ({ ...s, [id]: !s[id] }));
+  const toggleAll = () => {
+    if (selectedIds.length === open.length) setSelected({});
+    else { const all = {}; open.forEach(w => all[w.id] = true); setSelected(all); }
+  };
+  const runBatch = async () => {
+    if (!qboConnected) { alert("Connect QuickBooks first in Settings."); return; }
+    const targets = open.filter(w => selected[w.id]);
+    if (!targets.length) return;
+    if (!window.confirm(`Create ${targets.length} live invoice${targets.length!==1?"s":""} in QuickBooks?\n\nEach is saved (not sent) so you can review before sending.`)) return;
+    setBatchResult(null); setBatchRunning(true);
+    const ok = [], fail = [];
+    for (const wo of targets) {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-create-invoice`, {
+          method: "POST",
+          headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+          body: JSON.stringify({ wo, tenant_id: wo.tenant_id }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || "QBO push failed");
+        await supabase.from("work_orders").update({
+          status: "invoiced", invoice_no: data.invoiceNum, invoice_qbo_id: data.invoiceId, invoiced_by: user.email,
+        }).eq("id", wo.id);
+        ok.push({ id: wo.id, num: data.invoiceNum });
+      } catch (e) {
+        fail.push({ id: wo.id, error: e.message });
+      }
+    }
+    setBatchResult({ ok, fail });
+    setSelected({});
+    setBatchRunning(false);
+    onReload && onReload();
+  };
+
+  if (loading) return <div className="sheet"><div className="empty-state">Loading…</div></div>;
+
+  return (
+    <>
+      <div className="sheet">
+        <div className="sheet-h">
+          <div>
+            <div className="sheet-title">Open Work Orders</div>
+            <div className="sheet-meta">{open.length} awaiting invoice</div>
+          </div>
+          {canCreate && <button className="btn btn-primary btn-sm" onClick={onCreateNew}>＋ New</button>}
         </div>
+        {printMsg && <div style={{background:"#eef6f1",border:"1px solid #2ca01c",borderRadius:6,padding:"8px 12px",margin:"0 0 10px",fontSize:13}}>{printMsg}</div>}
+
+        {batchResult && (
+          <div style={{background: batchResult.fail.length ? "#fef9e7" : "#eef6f1", border:"1px solid "+(batchResult.fail.length?"#e7c389":"#2ca01c"), borderRadius:6, padding:"10px 12px", marginBottom:10, fontSize:13}}>
+            <div><b>✓ {batchResult.ok.length} invoice{batchResult.ok.length!==1?"s":""} created</b>{batchResult.fail.length ? ` · ${batchResult.fail.length} failed` : ""}</div>
+            {batchResult.fail.length > 0 && (
+              <div style={{marginTop:6}}>
+                {batchResult.fail.map(f => <div key={f.id} style={{color:"var(--red)"}}>WO #{f.id}: {f.error}</div>)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {open.length > 0 && mayInvoice && (
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12,flexWrap:"wrap"}}>
+            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
+              <input type="checkbox" checked={open.length>0 && selectedIds.length===open.length} onChange={toggleAll}/>
+              Select all
+            </label>
+            {selectedIds.length>0 && <span style={{fontSize:13,color:"var(--muted)"}}>{selectedIds.length} selected</span>}
+            <div style={{flex:1}}/>
+            <button className="btn btn-primary btn-sm"
+              disabled={selectedIds.length===0 || batchRunning || !qboConnected}
+              onClick={runBatch}
+              title={!qboConnected ? "Connect QuickBooks in Settings first" : ""}>
+              {batchRunning ? "Creating…" : `Create ${selectedIds.length ? selectedIds.length+" " : ""}Invoice${selectedIds.length===1?"":"s"} → QBO`}
+            </button>
+          </div>
+        )}
+
+        {open.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-state-icon">📋</div>
+            <div className="empty-state-h">No open work orders</div>
+            <div className="empty-state-p">Create one to get started. Open WOs appear here until invoiced.</div>
+          </div>
+        ) : (
+          open.map(wo => (
+            <div key={wo.id} className="wo-card">
+              <div className="wo-meta-l" style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                {mayInvoice && <input type="checkbox" checked={!!selected[wo.id]} onChange={()=>toggleOne(wo.id)} style={{marginTop:3,width:16,height:16,flexShrink:0,cursor:"pointer"}}/>}
+                <div style={{minWidth:0}}>
+                  <div className="wo-id">WO #{wo.id} · {wo.date}</div>
+                  <div className="wo-customer">{wo.customer}</div>
+                  <div className="wo-info">
+                    {wo.technician || "—"} · {(wo.lines||[]).length} line{(wo.lines||[]).length!==1?"s":""}
+                  </div>
+                </div>
+              </div>
+              <div className="wo-meta-r">
+                {!hideRates && <div className="wo-amt">{fmt$(woTotal(wo))}</div>}
+                <span className="wo-pill open">Open</span>
+              </div>
+              <div className="wo-actions">
+                {canCreate && <button className="btn btn-outline btn-sm" onClick={()=>onEditOpen(wo)}>✎ Edit</button>}
+                <button className="btn btn-outline btn-sm" onClick={()=>doPrint(wo)}>🖨 Print</button>
+                {mayInvoice && (
+                <button className="btn btn-outline btn-sm" onClick={()=>onPickInvoice(wo)}>
+                  <span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:"var(--red)"}}/>
+                  Create Invoice
+                </button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {recent.length > 0 && (
+        <div className="sheet">
+          <div className="sheet-h">
+            <div>
+              <div className="sheet-title" style={{fontSize:15}}>Recently Invoiced</div>
+              <div className="sheet-meta">Last 5</div>
+            </div>
+          </div>
+          {recent.map(wo => (
+            <div key={wo.id} className="wo-card invoiced">
+              <div className="wo-meta-l">
+                <div className="wo-id">WO #{wo.id} · Inv #{wo.invoice_no || "—"}</div>
+                <div className="wo-customer">{wo.customer}</div>
+                <div className="wo-info">{wo.date} · {wo.technician || "—"}</div>
+              </div>
+              <div className="wo-meta-r">
+                {!hideRates && <div className="wo-amt">{fmt$(woTotal(wo))}</div>}
+                <span className="wo-pill invoiced">Invoiced</span>
+              </div>
+              <div className="wo-actions">
+                {mayInvoice && <button className="btn btn-outline btn-sm" onClick={()=>onEditInvoiced(wo)}>✎ Edit</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ─── STEP 3: INVOICE PUSH ────────────────────────────────────────────────────
+function InvoicePush({ wo, qboConnected, user, onDone, onBack, mayInvoice }) {
+  const [pushing, setPushing] = useState(false);
+  const [err, setErr] = useState("");
+  const [posted, setPosted] = useState(null);
+
+  if (!wo) return (
+    <div className="sheet">
+      <div className="empty-state">
+        <div className="empty-state-h">No work order selected</div>
+        <button className="btn btn-outline btn-sm" onClick={onBack} style={{marginTop:10}}>← Back to list</button>
+      </div>
+    </div>
+  );
+
+  const woTotal = (wo.lines || []).reduce((s,l) => s + (Number(l.qty)||0)*(Number(l.rate)||0), 0);
+
+  const pushToQbo = async () => {
+    if (!qboConnected) { setErr("QuickBooks is not connected. Connect it in Settings first."); return; }
+    if (!window.confirm(`Post a LIVE invoice to QuickBooks for ${wo.customer}?\n\nIt will be saved (not sent) so you can review it in QuickBooks before sending.`)) return;
+    setErr(""); setPushing(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-create-invoice`, {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ wo, tenant_id: wo.tenant_id }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "QBO push failed");
+
+      await supabase.from("work_orders").update({
+        status: "invoiced",
+        invoice_no: data.invoiceNum,
+        invoice_qbo_id: data.invoiceId,
+        invoiced_by: user.email,
+      }).eq("id", wo.id);
+
+      const qboUrl = `https://app.qbo.intuit.com/app/invoice?txnId=${data.invoiceId}`;
+      setPosted({ id: data.invoiceId, num: data.invoiceNum, url: qboUrl });
+      try { window.open(qboUrl, "_blank"); } catch (e) {}
+    } catch (e) {
+      setErr(e.message);
+    }
+    setPushing(false);
+  };
+
+  if (posted) return (
+    <div className="sheet">
+      <div className="sheet-h">
         <div>
-          <div class="app-name">Learning Lab</div>
-          <div class="app-kicker">Build your own AI</div>
+          <div className="sheet-title">✅ Invoice Created</div>
+          <div className="sheet-meta">WO #{wo.id} · {wo.customer}</div>
         </div>
       </div>
-      <div class="app-desc">A guided lab that teaches small-business owners to build their own AI agents — hands-on, no coding background needed.</div>
-      <div class="app-actions">
-        <a class="open" href="/learn/">Start learning &rarr;</a>
+      <div style={{background:"#eafaf0",border:"1px solid #2ca01c",borderRadius:8,padding:16,marginBottom:16}}>
+        <div style={{fontSize:16,fontWeight:700,marginBottom:4}}>Invoice #{posted.num} saved to QuickBooks</div>
+        <div style={{fontSize:13,color:"var(--muted)"}}>It's saved but <b>not sent</b>. Review it in QuickBooks, then send when you're ready.</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        <a className="btn btn-primary" href={posted.url} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none",textAlign:"center"}}>
+          Open Invoice #{posted.num} in QuickBooks →
+        </a>
+        <button className="btn btn-outline" onClick={onDone}>Done — back to work orders</button>
       </div>
     </div>
+  );
 
-    <!-- Coming soon -->
-    <div class="app soon">
-      <div class="app-top">
-        <div class="app-ic" style="background:#eceae2">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9aa1a9" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  return (
+    <div className="sheet">
+      <div className="sheet-h">
+        <div>
+          <div className="sheet-title">Create Invoice in QuickBooks</div>
+          <div className="sheet-meta">WO #{wo.id} · {wo.customer}</div>
         </div>
-        <div><div class="soon-t">More apps coming</div></div>
+        <button className="btn btn-text" onClick={onBack}>← Back</button>
       </div>
-      <div class="soon-d">New tools are added to the suite as they're built. Check back — or ask about early access.</div>
+
+      {err && <div className="alert alert-error">{err}</div>}
+
+      {/* Read-only summary */}
+      <div className="hdr-grid" style={{padding:"12px",background:"#fafaf6",borderRadius:6,marginBottom:16}}>
+        <div><div className="label">Customer</div><div style={{fontWeight:700}}>{wo.customer}</div></div>
+        <div><div className="label">Date</div><div>{wo.date}</div></div>
+        <div><div className="label">Technician</div><div>{wo.technician || "—"}</div></div>
+      </div>
+
+      <table className="linegrid">
+        <thead><tr>
+          <th className="cnum">#</th>
+          <th>Product/Service</th>
+          <th>Description</th>
+          <th className="num">Qty</th>
+          <th className="num">Rate</th>
+          <th className="num">Amount</th>
+        </tr></thead>
+        <tbody>
+          {(wo.lines||[]).map((l,i)=>(
+            <tr key={i}>
+              <td className="row-num">{i+1}</td>
+              <td data-l="Product/Service" style={{padding:"10px"}}>{l.item || "—"}</td>
+              <td data-l="Description" style={{padding:"10px"}}>{l.desc || "—"}</td>
+              <td data-l="Qty" className="cell-amount" style={{textAlign:"right"}}>{l.qty}</td>
+              <td data-l="Rate" className="cell-amount" style={{textAlign:"right"}}>{fmt$(l.rate)}</td>
+              <td data-l="Amount" className="cell-amount">{fmt$((Number(l.qty)||0)*(Number(l.rate)||0))}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="totals">
+        <div className="totals-box">
+          <div className="totals-row"><span>Subtotal</span><span className="val">{fmt$(woTotal)}</span></div>
+          <div className="totals-row total"><span>Total</span><span className="val">{fmt$(woTotal)}</span></div>
+        </div>
+      </div>
+
+      <div className="qbo-push-card" style={{marginTop:24}}>
+        {!qboConnected && (
+          <div className="alert alert-info" style={{marginBottom:16}}>
+            Connect QuickBooks first to push invoices. We'll add this to Settings shortly.
+          </div>
+        )}
+        <p style={{fontSize:13,color:"var(--muted)",marginBottom:16}}>
+          This creates a <strong>draft invoice</strong> in QuickBooks. Customer is not emailed until you click Send in QBO.
+        </p>
+        <button className="btn-qbo-push" onClick={pushToQbo} disabled={pushing || !qboConnected || !mayInvoice}>
+          <span className="red-dot"/>
+          {pushing ? "Pushing to QuickBooks…" : "Create Invoice → QuickBooks"}
+        </button>
+      </div>
     </div>
+  );
+}
 
-  </div>
+// ─── SETTINGS MODAL ──────────────────────────────────────────────────────────
+// ─── TEAM MANAGEMENT (Owner/Admin only) ─────────────────────────────────────
+function TeamSection({ tenant, currentUserId }) {
+  const [members, setMembers] = useState([]);
+  const [invites, setInvites] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("tech");
+  const [inviteInvoice, setInviteInvoice] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  <footer>
-    Questions or early access? <a href="mailto:rodney@prompted2dothis.com">rodney@prompted2dothis.com</a> · <a href="tel:8708304942">(870) 830-4942</a>
-    <div class="foot-mono">PROMPTED TO DO THIS · SOFTWARE STUDIO</div>
-  </footer>
-</div>
+  const load = async () => {
+    const [{ data: m }, { data: i }] = await Promise.all([
+      supabase.from("tenant_users").select("*").eq("tenant_id", tenant.id).order("created_at"),
+      supabase.from("tenant_invites").select("*").eq("tenant_id", tenant.id).is("accepted_at", null).order("invited_at", { ascending: false }),
+    ]);
+    setMembers(m || []);
+    setInvites(i || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const sendInvite = async () => {
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email) { alert("Email is required"); return; }
+    if (seatsUsed >= seatLimit) { alert(`All ${seatLimit} seats are in use on the ${tenant.plan} plan. Remove a member or upgrade to add more.`); return; }
+    setBusy(true);
+    try {
+      // Check for duplicate
+      const { data: existing } = await supabase.from("tenant_invites")
+        .select("id").eq("tenant_id", tenant.id).eq("email", email).is("accepted_at", null).maybeSingle();
+      if (existing) { alert("An invite is already pending for that email."); setBusy(false); return; }
+
+      const { error } = await supabase.from("tenant_invites").insert({
+        tenant_id: tenant.id,
+        email,
+        role: inviteRole,
+        can_invoice: inviteInvoice,
+        invited_by: currentUserId,
+        invited_by_email: tenant.owner_email,
+      });
+      if (error) throw error;
+
+      alert(`✅ Invite created for ${email}.\n\nShare this link with them:\n${window.location.origin}\n\nThey should sign up with this exact email address. They'll automatically join your team.`);
+      setInviteEmail(""); setInviteRole("tech"); setInviteInvoice(false); setShowInvite(false);
+      load();
+    } catch (e) {
+      alert(`Failed to create invite: ${e.message}`);
+    }
+    setBusy(false);
+  };
+
+  const updateMember = async (id, patch) => {
+    const { error } = await supabase.from("tenant_users").update(patch).eq("id", id);
+    if (error) alert(`Failed to update: ${error.message}`);
+    load();
+  };
+
+  const removeInvite = async (id) => {
+    if (!confirm("Cancel this invitation?")) return;
+    await supabase.from("tenant_invites").delete().eq("id", id);
+    load();
+  };
+
+  const removeMember = async (id, email) => {
+    if (!confirm(`Remove ${email} from the team? They'll lose access immediately.`)) return;
+    await supabase.from("tenant_users").update({ active: false }).eq("id", id);
+    load();
+  };
+
+  const seatLimit = SEAT_LIMITS[tenant.plan] || 5;
+  const seatsUsed = members.filter(m=>m.active).length + invites.length;
+
+  return (
+    <div className="settings-section">
+      <div className="settings-h">Team Members</div>
+      <div className="settings-sub">Invite teammates and assign roles. <b>{seatsUsed} of {seatLimit} seats used</b> on the {tenant.plan} plan.</div>
+
+      {loading ? <div style={{fontSize:13,color:"var(--muted)"}}>Loading…</div> : (
+        <>
+          {/* Active members */}
+          <div style={{marginBottom:12}}>
+            {members.filter(m=>m.active).map(m => (
+              <div key={m.id} style={{padding:"10px 12px",background:"#fafaf6",borderRadius:6,marginBottom:6,display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center"}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                    {m.email}
+                    {m.user_id === currentUserId && <span style={{fontSize:10,marginLeft:6,padding:"1px 5px",background:"#d6eaf8",color:"#1b4f72",borderRadius:3}}>YOU</span>}
+                  </div>
+                  <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>
+                    {m.role}{m.can_invoice && " · can invoice"}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:4}}>
+                  {m.user_id !== currentUserId && m.role !== "owner" && (
+                    <>
+                      <select value={m.role} onChange={e=>updateMember(m.id,{role:e.target.value})}
+                        style={{fontSize:11,padding:"4px 6px",border:"1px solid var(--line)",borderRadius:4,fontFamily:"inherit"}}>
+                        <option value="admin">Admin</option>
+                        <option value="tech">Tech</option>
+                        <option value="viewer">Viewer</option>
+                      </select>
+                      <label style={{display:"flex",alignItems:"center",gap:4,fontSize:11}}>
+                        <input type="checkbox" checked={m.can_invoice} onChange={e=>updateMember(m.id,{can_invoice:e.target.checked})}/>
+                        $
+                      </label>
+                      <button onClick={()=>removeMember(m.id, m.email)} title="Remove"
+                        style={{background:"transparent",border:"none",color:"var(--red)",cursor:"pointer",fontSize:13,padding:"0 4px"}}>✕</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Pending invites */}
+          {invites.length > 0 && (
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:600,color:"var(--muted)",marginBottom:6,textTransform:"uppercase",letterSpacing:0.5}}>Pending invitations</div>
+              {invites.map(inv => (
+                <div key={inv.id} style={{padding:"8px 12px",background:"#fef9e7",borderRadius:6,marginBottom:6,display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center"}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{inv.email}</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>{inv.role}{inv.can_invoice && " · can invoice"} · pending</div>
+                  </div>
+                  <button onClick={()=>removeInvite(inv.id)} title="Cancel invite"
+                    style={{background:"transparent",border:"none",color:"var(--red)",cursor:"pointer",fontSize:13}}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Invite form */}
+          {seatsUsed >= seatLimit ? (
+            <div className="alert alert-info">All {seatLimit} seats on the {tenant.plan} plan are in use. Remove a member or upgrade your plan to add more.</div>
+          ) : !showInvite ? (
+            <button className="btn btn-outline btn-sm" onClick={()=>setShowInvite(true)}>＋ Invite Team Member</button>
+          ) : (
+            <div style={{padding:12,border:"1.5px dashed var(--inv)",borderRadius:6,marginTop:6}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>Invite Team Member</div>
+              <div className="fg" style={{marginBottom:8}}>
+                <label className="label">Email</label>
+                <input className="input" type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="tech@example.com" autoFocus disabled={busy}/>
+              </div>
+              <div className="fg" style={{marginBottom:8}}>
+                <label className="label">Role</label>
+                <select className="input" value={inviteRole} onChange={e=>setInviteRole(e.target.value)} disabled={busy}>
+                  <option value="tech">Tech — Create & view work orders</option>
+                  <option value="admin">Admin — Manage team & settings</option>
+                  <option value="viewer">Viewer — Read-only access</option>
+                </select>
+              </div>
+              <div className="fg" style={{marginBottom:10}}>
+                <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
+                  <input type="checkbox" checked={inviteInvoice} onChange={e=>setInviteInvoice(e.target.checked)} disabled={busy}/>
+                  Allow this user to push invoices to QuickBooks
+                </label>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button className="btn-text" onClick={()=>setShowInvite(false)} disabled={busy}>Cancel</button>
+                <button className="btn btn-primary btn-sm" onClick={sendInvite} disabled={busy} style={{flex:1}}>
+                  {busy ? "Sending…" : "Send Invite"}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── PRICE BOOK (matrix + tiers + import) ────────────────────────────────────
+function Field({ label, children }) {
+  return <div style={{marginBottom:10}}><div className="label" style={{marginBottom:4}}>{label}</div>{children}</div>;
+}
+
+function PriceBook({ tenant }) {
+  const [tab, setTab] = useState("matrix");
+  const [levels, setLevels] = useState([]);
+  const [items, setItems] = useState([]);
+  const [cells, setCells] = useState({});
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [rk, setRk] = useState(0);
+  const [msg, setMsg] = useState("");
+  const flash = (m) => { setMsg(m); setTimeout(()=>setMsg(""), 2800); };
+  const money = n => (n==null||n==="")?"":Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  const load = async () => {
+    setLoading(true);
+    const [lv, qi, cs, pli, cu] = await Promise.all([
+      supabase.from("price_levels").select("id,name,rank").eq("tenant_id",tenant.id).order("rank"),
+      supabase.from("qbo_items").select("id,sku,name,price").eq("tenant_id",tenant.id),
+      supabase.from("custom_skus").select("id,sku,name,price").eq("tenant_id",tenant.id),
+      supabase.from("price_level_items").select("price_level_id,item_id,override_value").eq("tenant_id",tenant.id),
+      supabase.from("customers").select("id,display_name,primary_price_level_id").eq("tenant_id",tenant.id).order("display_name"),
+    ]);
+    setLevels(lv.data||[]); setCustomers(cu.data||[]);
+    const its=[...(qi.data||[]).map(x=>({...x,source:"qbo"})), ...(cs.data||[]).map(x=>({...x,source:"custom"}))].sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+    setItems(its);
+    const c={}; (pli.data||[]).forEach(p=>{ (c[p.item_id]=c[p.item_id]||{})[p.price_level_id]=p.override_value; }); setCells(c);
+    setRk(x=>x+1); setLoading(false);
+  };
+  useEffect(()=>{ load(); }, [tenant.id]);
+
+  const saveCell = async (item, plId, val) => {
+    const raw = String(val).trim().replace(/[^0-9.\-]/g,"");
+    if (raw==="") {
+      await supabase.from("price_level_items").delete().match({price_level_id:plId,item_id:item.id,item_source:item.source});
+      setCells(c=>{ const n={...c}; if(n[item.id]){ n[item.id]={...n[item.id]}; delete n[item.id][plId]; } return n; });
+    } else {
+      const v=parseFloat(raw);
+      await supabase.from("price_level_items").upsert({tenant_id:tenant.id,price_level_id:plId,item_id:item.id,item_source:item.source,override_mode:"custom",override_value:v},{onConflict:"price_level_id,item_source,item_id"});
+      setCells(c=>({...c,[item.id]:{...(c[item.id]||{}),[plId]:v}}));
+    }
+    flash("Saved");
+  };
+  const saveBase = async (item, val) => {
+    const v=parseFloat(String(val).replace(/[^0-9.\-]/g,""))||0;
+    await supabase.from(item.source==="qbo"?"qbo_items":"custom_skus").update({price:v}).eq("id",item.id);
+    setItems(its=>its.map(i=>i.id===item.id?{...i,price:v}:i)); flash("Base saved");
+  };
+  const setTier = async (custId, plId) => {
+    const v = plId || null;
+    await supabase.from("customers").update({primary_price_level_id:v}).eq("id",custId);
+    setCustomers(cs=>cs.map(c=>c.id===custId?{...c,primary_price_level_id:v}:c)); flash("Tier updated");
+  };
+
+  // ---- bulk price adjust ----
+  const [adjDir, setAdjDir] = useState("raise");
+  const [adjMode, setAdjMode] = useState("amount");
+  const [adjVal, setAdjVal] = useState("");
+  const [adjBase, setAdjBase] = useState(true);
+  const [adjTiers, setAdjTiers] = useState(true);
+  const [adjBusy, setAdjBusy] = useState(false);
+  const applyAdjust = async () => {
+    const v = parseFloat(String(adjVal).replace(/[^0-9.]/g,""));
+    if (!v || v<=0) { flash("Enter an amount greater than 0"); return; }
+    if (!adjBase && !adjTiers) { flash("Choose base prices, tier prices, or both"); return; }
+    const sign = adjDir==="lower" ? -1 : 1;
+    const adj = (n) => { const cur=Number(n)||0; let out = adjMode==="percent" ? cur*(1+sign*v/100) : cur+sign*v; out=Math.round(out*100)/100; return out<0?0:out; };
+    const baseCount = adjBase ? items.length : 0;
+    let tierCount = 0;
+    if (adjTiers) items.forEach(it => levels.forEach(l => { if (cells[it.id] && cells[it.id][l.id]!=null) tierCount++; }));
+    const parts = [];
+    if (adjBase) parts.push(baseCount+" base price"+(baseCount!==1?"s":""));
+    if (adjTiers) parts.push(tierCount+" tier price"+(tierCount!==1?"s":""));
+    const amt = adjMode==="percent" ? v+"%" : "$"+v.toFixed(2);
+    if (!window.confirm((adjDir==="lower"?"Lower ":"Raise ")+parts.join(" and ")+" by "+amt+"?\n\nThis can't be undone.")) return;
+    setAdjBusy(true);
+    try {
+      if (adjBase) {
+        for (const it of items) {
+          await supabase.from(it.source==="qbo"?"qbo_items":"custom_skus").update({price:adj(it.price)}).eq("id", it.id);
+        }
+      }
+      if (adjTiers) {
+        const rows = [];
+        items.forEach(it => levels.forEach(l => {
+          const cur = cells[it.id] && cells[it.id][l.id];
+          if (cur!=null) rows.push({ tenant_id:tenant.id, price_level_id:l.id, item_id:it.id, item_source:it.source, override_mode:"custom", override_value:adj(cur) });
+        }));
+        for (let i=0;i<rows.length;i+=200) { const chunk=rows.slice(i,i+200); if (chunk.length) await supabase.from("price_level_items").upsert(chunk,{onConflict:"price_level_id,item_source,item_id"}); }
+      }
+      flash("Prices updated"); setAdjVal(""); await load(); setTab("matrix");
+    } catch(err) { flash("Adjust error: "+err.message); }
+    setAdjBusy(false);
+  };
+
+  // ---- import ----
+  const [impRows, setImpRows] = useState(null);
+  const [impCols, setImpCols] = useState([]);
+  const [impKind, setImpKind] = useState("items");
+  const [mName, setMName] = useState(""); const [mSku, setMSku] = useState(""); const [mBase, setMBase] = useState("");
+  const [mLevels, setMLevels] = useState([]);
+  const [mCustName, setMCustName] = useState(""); const [mCustTier, setMCustTier] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const onFile = async (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    try {
+      const buf = await f.arrayBuffer();
+      const wb = window.XLSX.read(buf,{type:"array"});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = window.XLSX.utils.sheet_to_json(ws,{defval:null});
+      if(!rows.length){ flash("No rows found in that file"); return; }
+      setImpRows(rows); setImpCols(Object.keys(rows[0]));
+      setMName(""); setMSku(""); setMBase(""); setMLevels([]); setMCustName(""); setMCustTier("");
+    } catch(err){ flash("Could not read file: "+err.message); }
+  };
+  const toggleLevel = (col) => setMLevels(ls => ls.includes(col) ? ls.filter(x=>x!==col) : [...ls, col]);
+  const orderedLevels = () => impCols.filter(c => mLevels.includes(c));
+
+  const runItemImport = async () => {
+    if(!mName || mLevels.length===0){ flash("Pick the item-name column and at least one price column"); return; }
+    setBusy(true);
+    try {
+      const cols = orderedLevels();
+      let lv = levels;
+      if(lv.length < cols.length){
+        const toAdd=[];
+        for(let r=lv.length+1; r<=cols.length; r++) toAdd.push({tenant_id:tenant.id,name:"Price Level "+r,rank:r,mode:"percent",default_adjustment:0,active:true});
+        if(toAdd.length) await supabase.from("price_levels").insert(toAdd);
+        const {data}=await supabase.from("price_levels").select("id,name,rank").eq("tenant_id",tenant.id).order("rank"); lv=data||[];
+      }
+      const rankToId={}; lv.forEach(l=>rankToId[l.rank]=l.id);
+      let cur=[...items]; let n=0;
+      for(const row of impRows){
+        const name=String(row[mName]??"").trim(); if(!name) continue;
+        const sku=mSku?String(row[mSku]??"").trim():name;
+        const base=mBase?(parseFloat(row[mBase])||0):0;
+        let itemId; const ex=cur.find(i=>i.sku===sku);
+        if(ex){ itemId=ex.id; await supabase.from("custom_skus").update({name,price:base}).eq("id",itemId); }
+        else { const {data,error}=await supabase.from("custom_skus").insert({tenant_id:tenant.id,sku,name,price:base,item_group:"Imported"}).select("id").single(); if(error) throw error; itemId=data.id; cur.push({id:itemId,sku,name,price:base}); }
+        const pr=[];
+        cols.forEach((col,idx)=>{ const v=row[col]; if(v!==null&&v!==""&&!isNaN(parseFloat(v))) pr.push({tenant_id:tenant.id,price_level_id:rankToId[idx+1],item_id:itemId,item_source:"custom",override_mode:"custom",override_value:parseFloat(v)}); });
+        if(pr.length) await supabase.from("price_level_items").upsert(pr,{onConflict:"price_level_id,item_source,item_id"});
+        n++;
+      }
+      flash("Imported "+n+" items"); setImpRows(null); await load(); setTab("matrix");
+    } catch(err){ flash("Import error: "+err.message); }
+    setBusy(false);
+  };
+
+  const runCustomerImport = async () => {
+    if(!mCustName || !mCustTier){ flash("Pick the customer-name and tier columns"); return; }
+    setBusy(true);
+    try {
+      const rankToId={}; levels.forEach(l=>rankToId[l.rank]=l.id);
+      let cur=[...customers]; let n=0;
+      for(const row of impRows){
+        const name=String(row[mCustName]??"").trim(); if(!name) continue;
+        const tierNum=parseInt(String(row[mCustTier]??"").replace(/[^0-9]/g,""));
+        const plId=rankToId[tierNum]||null;
+        const ex=cur.find(c=>(c.display_name||"").toLowerCase()===name.toLowerCase());
+        if(ex){ await supabase.from("customers").update({primary_price_level_id:plId}).eq("id",ex.id); }
+        else { const {data,error}=await supabase.from("customers").insert({tenant_id:tenant.id,display_name:name,primary_price_level_id:plId,active:true}).select("id").single(); if(error) throw error; cur.push({id:data.id,display_name:name,primary_price_level_id:plId}); }
+        n++;
+      }
+      flash("Imported "+n+" customers"); setImpRows(null); await load(); setTab("customers");
+    } catch(err){ flash("Import error: "+err.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="sheet">
+      <div className="sheet-h">
+        <div>
+          <div className="sheet-title">Price Book</div>
+          <div className="sheet-meta">{items.length} items · {levels.length} levels · {customers.length} customers</div>
+        </div>
+      </div>
+      {msg && <div style={{background:"#eef6f1",border:"1px solid #2ca01c",borderRadius:6,padding:"8px 12px",marginBottom:12,fontSize:13}}>{msg}</div>}
+      <div style={{display:"flex",gap:6,marginBottom:14}}>
+        {["matrix","customers","adjust","import"].map(t=>(
+          <button key={t} onClick={()=>setTab(t)}
+            style={{flex:1,padding:"9px 4px",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer",textTransform:"capitalize",fontFamily:"inherit",background:tab===t?"var(--ink)":"#fff",color:tab===t?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>{t}</button>
+        ))}
+      </div>
+
+      {loading ? <div style={{padding:30,textAlign:"center",color:"var(--muted)"}}>Loading…</div> : (<>
+
+      {tab==="matrix" && (
+        (levels.length===0 || items.length===0) ? (
+          <div style={{padding:24,textAlign:"center",color:"var(--muted)"}}>No price data yet. Use the <b>Import</b> tab to load your list.</div>
+        ) : (
+        <div style={{overflow:"auto",border:"1px solid var(--line)",borderRadius:8,maxHeight:"64vh"}}>
+          <table key={rk} style={{borderCollapse:"separate",borderSpacing:0,fontSize:13}}>
+            <thead><tr>
+              <th style={{position:"sticky",left:0,top:0,zIndex:6,background:"#fafaf6",padding:8,textAlign:"left",borderBottom:"1px solid var(--line)",borderRight:"1px solid var(--line)"}}>Item</th>
+              {levels.map(l=>(<th key={l.id} style={{position:"sticky",top:0,background:"#fafaf6",padding:"8px 6px",fontSize:11,color:"var(--muted)",borderBottom:"1px solid var(--line)",borderRight:"1px solid var(--line)",whiteSpace:"nowrap"}}>{l.name.replace("Price Level","PL")}</th>))}
+            </tr></thead>
+            <tbody>
+              {items.map(it=>(
+                <tr key={it.id}>
+                  <td style={{position:"sticky",left:0,zIndex:1,background:"#fff",padding:"6px 8px",borderBottom:"1px solid #eee",borderRight:"1px solid var(--line)",minWidth:150}}>
+                    <div style={{fontWeight:600,whiteSpace:"nowrap"}}>{it.name}</div>
+                    <div style={{fontSize:10,color:"var(--muted)"}}>{it.sku} · base <input defaultValue={money(it.price)} onBlur={e=>saveBase(it,e.target.value)} inputMode="decimal" style={{width:54,border:"1px solid #eee",borderRadius:4,fontSize:11,textAlign:"right",fontFamily:"monospace",padding:"1px 3px"}}/></div>
+                  </td>
+                  {levels.map(l=>(
+                    <td key={l.id} style={{borderBottom:"1px solid #eee",borderRight:"1px solid var(--line)"}}>
+                      <input defaultValue={cells[it.id]&&cells[it.id][l.id]!=null?money(cells[it.id][l.id]):""} placeholder="·"
+                        onBlur={e=>saveCell(it,l.id,e.target.value)} inputMode="decimal"
+                        style={{width:62,border:"1px solid transparent",background:"transparent",fontFamily:"monospace",fontSize:13,textAlign:"right",padding:"7px 5px"}}/>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        )
+      )}
+
+      {tab==="customers" && (
+        customers.length===0 ? <div style={{padding:24,textAlign:"center",color:"var(--muted)"}}>No customers yet. Load them in the <b>Import</b> tab.</div> :
+        <div style={{border:"1px solid var(--line)",borderRadius:8,overflow:"hidden"}}>
+          {customers.map(c=>(
+            <div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 12px",borderBottom:"1px solid #eee",gap:8}}>
+              <span style={{fontSize:14,fontWeight:500}}>{c.display_name}</span>
+              <select value={c.primary_price_level_id||""} onChange={e=>setTier(c.id, e.target.value||null)} style={{padding:"6px 8px",border:"1px solid var(--line)",borderRadius:6,fontSize:13}}>
+                <option value="">Untiered</option>
+                {levels.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab==="adjust" && (
+        <div>
+          <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:12}}>Raise or lower every price at once — by a flat amount or a percent. Pick whether it touches your base list prices, your tier (price-level) prices, or both.</div>
+
+          <div style={{display:"flex",gap:6,marginBottom:12}}>
+            <button onClick={()=>setAdjDir("raise")} style={{flex:1,padding:"9px",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:adjDir==="raise"?"var(--go)":"#fff",color:adjDir==="raise"?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>▲ Raise</button>
+            <button onClick={()=>setAdjDir("lower")} style={{flex:1,padding:"9px",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:adjDir==="lower"?"var(--red)":"#fff",color:adjDir==="lower"?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>▼ Lower</button>
+          </div>
+
+          <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"flex-end"}}>
+            <div style={{flex:1}}>
+              <div className="label" style={{marginBottom:4}}>{adjMode==="percent"?"Percent":"Amount per item"}</div>
+              <input className="input" inputMode="decimal" value={adjVal} onChange={e=>setAdjVal(e.target.value)} placeholder={adjMode==="percent"?"e.g. 3":"e.g. 0.25"}/>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>setAdjMode("amount")} style={{padding:"10px 14px",borderRadius:7,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",background:adjMode==="amount"?"var(--ink)":"#fff",color:adjMode==="amount"?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>$</button>
+              <button onClick={()=>setAdjMode("percent")} style={{padding:"10px 14px",borderRadius:7,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",background:adjMode==="percent"?"var(--ink)":"#fff",color:adjMode==="percent"?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>%</button>
+            </div>
+          </div>
+
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
+            <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}>
+              <input type="checkbox" checked={adjBase} onChange={e=>setAdjBase(e.target.checked)}/>
+              Base list prices <span style={{color:"var(--muted)"}}>({items.length} items)</span>
+            </label>
+            <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}>
+              <input type="checkbox" checked={adjTiers} onChange={e=>setAdjTiers(e.target.checked)}/>
+              Tier prices <span style={{color:"var(--muted)"}}>(every filled cell in the matrix)</span>
+            </label>
+          </div>
+
+          <button className="btn btn-primary" disabled={adjBusy} onClick={applyAdjust} style={{width:"100%"}}>
+            {adjBusy ? "Applying…" : (adjDir==="lower"?"Lower":"Raise")+" prices"}
+          </button>
+          <div style={{fontSize:11,color:"var(--muted)",marginTop:8,textAlign:"center"}}>You'll get a confirmation with the exact count before anything changes. No bulk undo.</div>
+        </div>
+      )}
+
+      {tab==="import" && (
+        <div>
+          <div style={{display:"flex",gap:6,marginBottom:12}}>
+            <button onClick={()=>{setImpKind("items");setImpRows(null);}} style={{flex:1,padding:"9px",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:impKind==="items"?"var(--brass)":"#fff",color:impKind==="items"?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>Items &amp; Prices</button>
+            <button onClick={()=>{setImpKind("customers");setImpRows(null);}} style={{flex:1,padding:"9px",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:impKind==="customers"?"var(--brass)":"#fff",color:impKind==="customers"?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>Customers &amp; Tiers</button>
+          </div>
+          <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:10}}>Upload an Excel (.xlsx) or CSV from Sage, QuickBooks, or any spreadsheet. You map the columns yourself, so any layout works. Existing items/customers are matched and updated, not duplicated.</div>
+          <input type="file" accept=".xlsx,.xls,.csv" onChange={onFile} style={{marginBottom:14,fontSize:13,display:"block"}}/>
+
+          {impRows && (
+            <div style={{background:"#fafaf6",border:"1px solid var(--line)",borderRadius:8,padding:12}}>
+              <div style={{fontSize:12,color:"var(--muted)",marginBottom:10}}>{impRows.length} rows · {impCols.length} columns found</div>
+
+              {impKind==="items" ? (<>
+                <Field label="Item name column"><select value={mName} onChange={e=>setMName(e.target.value)} className="input"><option value="">— choose —</option>{impCols.map(c=><option key={c} value={c}>{c}</option>)}</select></Field>
+                <Field label="SKU / ID column (optional)"><select value={mSku} onChange={e=>setMSku(e.target.value)} className="input"><option value="">— use name as SKU —</option>{impCols.map(c=><option key={c} value={c}>{c}</option>)}</select></Field>
+                <Field label="Base / list price column (optional)"><select value={mBase} onChange={e=>setMBase(e.target.value)} className="input"><option value="">— none —</option>{impCols.map(c=><option key={c} value={c}>{c}</option>)}</select></Field>
+                <div style={{fontSize:13,fontWeight:600,margin:"10px 0 6px"}}>Price level columns <span style={{fontWeight:400,color:"var(--muted)"}}>(check in tier order — {mLevels.length} selected)</span></div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+                  {impCols.map(c=>(
+                    <label key={c} style={{fontSize:12,padding:"5px 8px",border:"1px solid var(--line)",borderRadius:6,background:mLevels.includes(c)?"#eef6f1":"#fff",cursor:"pointer"}}>
+                      <input type="checkbox" checked={mLevels.includes(c)} onChange={()=>toggleLevel(c)} style={{marginRight:5}}/>{c}
+                    </label>
+                  ))}
+                </div>
+                <button className="btn btn-primary" disabled={busy} onClick={runItemImport} style={{width:"100%"}}>{busy?"Importing…":"Import Items & Prices"}</button>
+              </>) : (<>
+                <Field label="Customer name column"><select value={mCustName} onChange={e=>setMCustName(e.target.value)} className="input"><option value="">— choose —</option>{impCols.map(c=><option key={c} value={c}>{c}</option>)}</select></Field>
+                <Field label="Tier column (a number 1–N)"><select value={mCustTier} onChange={e=>setMCustTier(e.target.value)} className="input"><option value="">— choose —</option>{impCols.map(c=><option key={c} value={c}>{c}</option>)}</select></Field>
+                <button className="btn btn-primary" disabled={busy} onClick={runCustomerImport} style={{width:"100%",marginTop:4}}>{busy?"Importing…":"Import Customers & Tiers"}</button>
+              </>)}
+            </div>
+          )}
+        </div>
+      )}
+
+      </>)}
+    </div>
+  );
+}
+
+function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQboChange, onSettingsChange }) {
+  const [syncing, setSyncing] = useState(false);
+  const [itemCount, setItemCount] = useState(0);
+  const [custCount, setCustCount] = useState(0);
+  const [syncingCust, setSyncingCust] = useState(false);
+  const [lastSync, setLastSync] = useState("");
+  const [hideRates, setHideRates] = useState(!!settings?.hide_rates_from_techs);
+  const [savingSetting, setSavingSetting] = useState(false);
+  const [printerEmail, setPrinterEmail] = useState(settings?.printer_email || "");
+  const [savingPrinter, setSavingPrinter] = useState(false);
+  const isAdmin = userRole === "owner" || userRole === "admin";
+
+  useEffect(() => {
+    loadItemCount();
+    loadCustCount();
+    const handler = (e) => {
+      if (e.data?.type === "qbo-connected") {
+        onQboChange();
+        if (e.data.success) {
+          // Auto-sync products immediately after connect
+          setTimeout(() => autoSyncAfterConnect(), 1000);
+        }
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  const loadItemCount = async () => {
+    const { count, data } = await supabase.from("qbo_items")
+      .select("synced_at", { count: "exact" })
+      .eq("tenant_id", tenant.id)
+      .order("synced_at", { ascending: false })
+      .limit(1);
+    setItemCount(count || 0);
+    if (data?.[0]?.synced_at) setLastSync(new Date(data[0].synced_at).toLocaleString());
+  };
+
+  const loadCustCount = async () => {
+    const { count } = await supabase.from("customers")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenant.id);
+    setCustCount(count || 0);
+  };
+
+  const connectQbo = async () => {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-auth?tenant_id=${tenant.id}`, {
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      const w = window.open(data.url, "qbo-oauth", "width=600,height=700");
+      if (!w) alert("Please allow popups to connect QuickBooks");
+    } catch (e) {
+      alert(`Failed to start QBO connection: ${e.message}`);
+    }
+  };
+
+  const autoSyncAfterConnect = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-list-items`, {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ tenant_id: tenant.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`✅ QuickBooks connected!\n\n📦 Auto-synced ${data.count} products from your QBO account.`);
+        loadItemCount();
+      } else {
+        alert(`✅ QuickBooks connected!\n\nProduct sync failed: ${data.error}\nYou can re-sync manually below.`);
+      }
+    } catch (e) {
+      alert(`✅ QuickBooks connected!\n\nProduct sync failed: ${e.message}`);
+    }
+    setSyncing(false);
+  };
+
+  const disconnectQbo = async () => {
+    if (!confirm("Disconnect QuickBooks? You can reconnect anytime.")) return;
+    await supabase.from("qbo_tokens").delete().eq("tenant_id", tenant.id);
+    onQboChange();
+    alert("QuickBooks disconnected.");
+  };
+
+  const syncItems = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-list-items`, {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ tenant_id: tenant.id }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      alert(`✅ Synced ${data.count} products from QuickBooks`);
+      loadItemCount();
+    } catch (e) {
+      alert(`Sync failed: ${e.message}`);
+    }
+    setSyncing(false);
+  };
+
+  const syncCustomers = async () => {
+    setSyncingCust(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-list-customers`, {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ tenant_id: tenant.id }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      alert(`✅ Synced ${data.count} customers from QuickBooks`);
+      loadCustCount();
+    } catch (e) {
+      alert(`Customer sync failed: ${e.message}`);
+    }
+    setSyncingCust(false);
+  };
+
+  const toggleHideRates = async () => {
+    const newVal = !hideRates;
+    setSavingSetting(true);
+    try {
+      const { error } = await supabase.from("tenant_settings")
+        .update({ hide_rates_from_techs: newVal, updated_at: new Date().toISOString() })
+        .eq("tenant_id", tenant.id);
+      if (error) throw error;
+      setHideRates(newVal);
+      onSettingsChange();
+    } catch (e) {
+      alert(`Could not save: ${e.message}`);
+    }
+    setSavingSetting(false);
+  };
+
+  const savePrinter = async () => {
+    setSavingPrinter(true);
+    try {
+      const { error } = await supabase.from("tenant_settings")
+        .update({ printer_email: printerEmail.trim() || null, updated_at: new Date().toISOString() })
+        .eq("tenant_id", tenant.id);
+      if (error) throw error;
+      onSettingsChange();
+      alert("✅ Printer email saved");
+    } catch (e) {
+      alert(`Could not save: ${e.message}`);
+    }
+    setSavingPrinter(false);
+  };
+
+  const subscribe = (planId) => {
+    const link = STRIPE_LINKS[planId];
+    if (!link) { alert("That plan isn't set up yet."); return; }
+    const url = link + (link.includes("?") ? "&" : "?") + "client_reference_id=" + encodeURIComponent(tenant.id);
+    window.open(url, "_blank");
+  };
+
+  const trialDays = tenant.trial_ends_at
+    ? Math.max(0, Math.ceil((new Date(tenant.trial_ends_at) - Date.now()) / (1000*60*60*24)))
+    : 0;
+
+  const planLabel = PLANS.find(p=>p.id===tenant.plan)?.name || tenant.plan;
+  const planPrice = PLANS.find(p=>p.id===tenant.plan)?.price || "—";
+
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <div className="modal-h">
+          <h2>Settings</h2>
+          <button className="btn-icon" style={{color:"var(--muted)",fontSize:18}} onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+
+          <div className="settings-section">
+            <div className="settings-h">Company</div>
+            <div className="kv-row"><span className="k">Name</span><span className="v">{tenant.name}</span></div>
+            <div className="kv-row"><span className="k">Industry</span><span className="v">{tenant.industry}</span></div>
+            <div className="kv-row"><span className="k">Owner</span><span className="v">{tenant.owner_email}</span></div>
+            <div className="kv-row"><span className="k">Your role</span><span className="v" style={{textTransform:"capitalize"}}>{userRole}</span></div>
+          </div>
+
+          <div className="settings-section">
+            <div className="settings-h">Subscription</div>
+            <div className="kv-row"><span className="k">Plan</span><span className="v">{planLabel} — ${planPrice}/mo</span></div>
+            <div className="kv-row"><span className="k">Status</span><span className="v" style={{textTransform:"capitalize"}}>
+              {(!["active","past_due","canceled"].includes(tenant.subscription_status) && trialDays > 0) ? `Free trial — ${trialDays} days left` : (tenant.subscription_status || "Trial ended")}
+            </span></div>
+            {isAdmin && (
+              <div style={{marginTop:12}}>
+                <div className="settings-sub">Subscribe or change plan:</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {PLANS.filter(pl => STRIPE_LINKS[pl.id]).map((pl, _i, arr) => (
+                    <button key={pl.id} className="btn btn-primary btn-sm" onClick={()=>subscribe(pl.id)}>
+                      {arr.length > 1 ? `${pl.name} — $${pl.price}/mo` : `Subscribe — $${pl.price}/mo`}
+                    </button>
+                  ))}
+                </div>
+                {STRIPE_PORTAL_URL && (
+                  <a className="btn-text" href={STRIPE_PORTAL_URL} target="_blank" rel="noopener noreferrer" style={{display:"inline-block",marginTop:10}}>Manage billing →</a>
+                )}
+              </div>
+            )}
+          </div>
+
+          {isAdmin && (
+            <div className="settings-section">
+              <div className="settings-h">Pricing Visibility</div>
+              <div className="settings-sub">Control whether technicians can see rates and totals on work orders.</div>
+              <label style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#fafaf6",borderRadius:6,cursor:"pointer"}}>
+                <input type="checkbox" checked={hideRates} onChange={toggleHideRates} disabled={savingSetting} style={{width:18,height:18,cursor:"pointer"}}/>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600}}>Hide rates from technicians</div>
+                  <div style={{fontSize:11,color:"var(--muted)"}}>Techs won't see Rate, Amount, or Totals columns. Owners and admins still see all pricing.</div>
+                </div>
+              </label>
+            </div>
+          )}
+
+          {isAdmin && (
+            <div className="settings-section">
+              <div className="settings-h">Printing</div>
+              <div className="settings-sub">Where the Print button sends work orders. Enter your printer's email address — for example an HP ePrint address. Leave blank and the Print button will prompt you to set it.</div>
+              <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+                <div style={{flex:1}}>
+                  <label className="label">Printer email</label>
+                  <input className="input" type="email" value={printerEmail} onChange={e=>setPrinterEmail(e.target.value)} placeholder="yourprinter@hpeprint.com"/>
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={savePrinter} disabled={savingPrinter}>{savingPrinter?"Saving…":"Save"}</button>
+              </div>
+            </div>
+          )}
+
+          {isAdmin && <TeamSection tenant={tenant} currentUserId={user.id}/>}
+
+          <div className="settings-section">
+            <div className="settings-h">QuickBooks Online</div>
+            <div className="settings-sub">Connect your QBO company to create invoices from work orders. Products auto-sync on first connect.</div>
+            <div className="qbo-status-card">
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                <span style={{width:10,height:10,borderRadius:"50%",background:qboConnected?"var(--qb)":"#bdc3c7",boxShadow:qboConnected?"0 0 6px rgba(44,160,28,0.6)":"none"}}/>
+                <span style={{fontWeight:700,fontSize:14}}>{qboConnected ? "Connected" : "Not connected"}</span>
+              </div>
+              {qboConnected && itemCount > 0 && (
+                <div style={{fontSize:12,color:"var(--muted)"}}>
+                  📦 {itemCount} products synced{lastSync && ` · Last sync: ${lastSync}`}
+                </div>
+              )}
+              {qboConnected && custCount > 0 && (
+                <div style={{fontSize:12,color:"var(--muted)",marginTop:2}}>
+                  👥 {custCount} customers synced
+                </div>
+              )}
+            </div>
+            <div className="btn-row">
+              {!qboConnected ? (
+                <button className="btn btn-primary btn-sm" onClick={connectQbo}>Connect QuickBooks</button>
+              ) : (
+                <>
+                  <button className="btn btn-outline btn-sm" onClick={syncItems} disabled={syncing}>
+                    {syncing ? "Syncing…" : itemCount > 0 ? "🔄 Re-sync Products" : "📥 Sync Products"}
+                  </button>
+                  <button className="btn btn-outline btn-sm" onClick={syncCustomers} disabled={syncingCust}>
+                    {syncingCust ? "Syncing…" : custCount > 0 ? "🔄 Re-sync Customers" : "📥 Sync Customers"}
+                  </button>
+                  {isAdmin && <button className="btn-text" onClick={disconnectQbo} style={{color:"var(--red)"}}>Disconnect</button>}
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <div className="settings-h">Help & Support</div>
+            <div className="settings-sub">Need help? Get in touch with us directly.</div>
+            <div style={{padding:"12px 14px", background:"#fafaf6", borderRadius:6, marginBottom:8}}>
+              <div style={{fontSize:13, marginBottom:6}}>
+                📧 <a href="mailto:rodney@prompted2dothis.com" style={{color:"var(--inv)", fontWeight:600}}>rodney@prompted2dothis.com</a>
+              </div>
+              <div style={{fontSize:13, marginBottom:6}}>
+                📞 <a href="tel:8708304942" style={{color:"var(--inv)", fontWeight:600}}>(870) 830-4942</a>
+              </div>
+              <div style={{fontSize:11, color:"var(--muted)", marginTop:6}}>
+                Response within 24 hours during business days.
+              </div>
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <div className="settings-h">Coming Soon</div>
+            <div style={{fontSize:13,color:"var(--muted)",lineHeight:1.7}}>
+              ✓ Team members & PIN authentication<br/>
+              ✓ Custom service catalog editor<br/>
+              ✓ Email templates & default rates<br/>
+              ✓ Customer & technician lists<br/>
+              {(tenant.plan === "gps" || tenant.plan === "pro") && <><br/>🚛 GPS truck tracking (v2)</>}
+              {tenant.plan === "pro" && <><br/>💰 Price Levels for QBO integration (v3)</>}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
 </body>
 </html>
