@@ -798,6 +798,9 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
   const [technician, setTechnician] = useState(editing?.technician || "");
   const [lines, setLines] = useState(editing?.lines?.length ? editing.lines.map(l=>({...l})) : [newLine(), newLine()]);
   const [notes, setNotes] = useState(editing?.notes || "");
+  const [poNumber, setPoNumber] = useState(editing?.po_number || "");
+  const [docBusy, setDocBusy] = useState(false);
+  const [docReview, setDocReview] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -877,6 +880,68 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
   const delLine = (i) => setLines(ls => ls.length > 1 ? ls.filter((_,idx)=>idx!==i) : ls);
   const clearLines = () => setLines([newLine(), newLine()]);
 
+  // ── PO / Estimate intake: AI reads the document, we match it to your customers
+  //    and catalog, you review, THEN it fills the form. Nothing saves until you do.
+  const normS = (x) => String(x||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+  const toks = (x) => String(x||"").toLowerCase().split(/[^a-z0-9]+/).filter(t=>t.length>2);
+  const sim = (a,b) => { const A=new Set(toks(a)), B=new Set(toks(b)); if(!A.size||!B.size) return 0; let hit=0; A.forEach(t=>{ if(B.has(t)) hit++; }); return hit/Math.max(A.size,B.size); };
+  const bestCustomer = (name) => {
+    if (!name) return { c:null, score:0 };
+    const exact = customers.find(c => normS(c.display_name)===normS(name)); if (exact) return { c: exact, score: 1 };
+    let best=null, bs=0; customers.forEach(c => { const v=sim(c.display_name,name); if(v>bs){bs=v;best=c;} });
+    const inc = customers.find(c => normS(c.display_name).includes(normS(name)) || normS(name).includes(normS(c.display_name)));
+    if (inc && bs < 0.5) return { c: inc, score: 0.6 };
+    return best && bs>=0.34 ? { c: best, score: bs } : { c:null, score:0 };
+  };
+  const bestItem = (name, desc) => {
+    const q = normS(name);
+    const exact = q ? catalog.find(x => normS(x.name)===q || (x.sku && normS(x.sku)===q)) : null; if (exact) return { it: exact, score: 1 };
+    let best=null, bs=0; catalog.forEach(x => { const v=Math.max(sim(x.name,name), sim(x.name,desc)); if(v>bs){bs=v;best=x;} });
+    return best && bs>=0.4 ? { it: best, score: bs } : { it:null, score:0 };
+  };
+  const onDocFile = async (e) => {
+    const f = e.target.files && e.target.files[0]; if (!f) return; e.target.value = "";
+    setErr(""); setDocBusy(true); setDocReview(null);
+    try {
+      const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = () => rej(new Error("Could not read file")); r.readAsDataURL(f); });
+      let mt = f.type || ""; if (!mt && /\.pdf$/i.test(f.name)) mt = "application/pdf";
+      if (/heic|heif/i.test(mt) || /\.hei[cf]$/i.test(f.name)) throw new Error("HEIC photos aren't supported yet — use the PDF, or take a screenshot of the document instead.");
+      if (!mt) throw new Error("Unknown file type — use a PDF or a JPG/PNG photo.");
+      const { data, error } = await supabase.functions.invoke("parse-document", { body: { file_base64: b64, media_type: mt, filename: f.name, tenant_id: tenant.id } });
+      if (error) throw new Error(error.message);
+      if (!data || !data.success) throw new Error((data && data.error) || "Could not read the document");
+      const pd = data.parsed;
+      const cm = bestCustomer(pd.customer_name);
+      const lns = pd.lines.map(l => { const m = bestItem(l.item, l.description); return { ...l, match: m.it, score: m.score, usePrice: "doc" }; });
+      setDocReview({ p: pd, cust: cm.c, custScore: cm.score, custName: cm.c ? cm.c.display_name : pd.customer_name, lines: lns, fileName: f.name, poPick: pd.po_number || "N/A" });
+    } catch (ex) { setErr(ex.message); }
+    setDocBusy(false);
+  };
+  const applyDoc = async () => {
+    const r = docReview; if (!r) return;
+    const cust = r.cust;
+    const name = (r.custName || r.p.customer_name || "").trim();
+    setCustomer(name);
+    const cid = cust ? cust.id : null; setCustomerId(cid);
+    setTierName(cust && cust.primary_price_level_id ? ((priceLevels.find(x=>x.id===cust.primary_price_level_id)||{}).name||"") : "");
+    if (r.p.doc_date) setDate(r.p.doc_date);
+    setPoNumber((r.poPick || "N/A").trim() || "N/A");
+    const built = [];
+    for (const l of r.lines) {
+      const it = l.match;
+      let rate = l.unit_price;
+      if (l.usePrice === "ours" && it) rate = await resolveRate(cid, it.source, it.id, it.base);
+      const itemName = it ? it.name : (l.item || l.description);
+      const descText = it ? l.description : (l.item ? l.description : "");
+      built.push({ item: itemName, desc: descText, qty: l.qty, rate: Number(rate)||0, item_source: it ? it.source : null, item_id: it ? it.id : null, base_rate: it ? it.base : undefined });
+    }
+    if (built.length) setLines(built);
+    const label = r.p.doc_type==="po" ? "PO" : r.p.doc_type==="estimate" ? "estimate" : "document";
+    const src = `From ${label}${r.p.po_number ? " #"+r.p.po_number : ""} (${r.fileName})`;
+    setNotes(n => [n, r.p.notes, src].filter(Boolean).join("\n"));
+    setDocReview(null);
+  };
+
   const qtyOf = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
   const total = useMemo(() => lines.reduce((s,l) => s + qtyOf(l) * (Number(l.rate)||0), 0), [lines]);
 
@@ -891,11 +956,11 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
     if (editing) {
       setSaving(true);
       try {
-        await supabase.from("work_orders").update({ customer: customer.trim(), customer_id: customerId, technician: technician.trim(), date, lines: newLines, notes }).eq("id", editing.id);
+        await supabase.from("work_orders").update({ customer: customer.trim(), customer_id: customerId, technician: technician.trim(), date, lines: newLines, notes, po_number: poNumber.trim() || null }).eq("id", editing.id);
         if (editing.invoice_qbo_id) {
           // Already invoiced -> push the change to the QuickBooks invoice
           const { data, error } = await supabase.functions.invoke("qbo-update-invoice", {
-            body: { invoice_id: editing.invoice_qbo_id, tenant_id: tenant.id, wo: { ...editing, customer: customer.trim(), technician: technician.trim(), date, lines: newLines } },
+            body: { invoice_id: editing.invoice_qbo_id, tenant_id: tenant.id, wo: { ...editing, customer: customer.trim(), technician: technician.trim(), date, lines: newLines, po_number: poNumber.trim() || null } },
           });
           if (error) throw new Error(error.message);
           if (!data || !data.success) throw new Error((data && data.error) || "Update failed");
@@ -925,6 +990,7 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
         lines: newLines,
         status: "open",
         notes,
+        po_number: poNumber.trim() || null,
         created_by: user.id,
       });
       if (error) throw error;
@@ -942,7 +1008,85 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
           <div className="sheet-title">{editing ? (editing.invoice_qbo_id ? `Edit Invoice #${editing.invoice_no || editing.id}` : `Edit Work Order #${editing.id}`) : "New Work Order"}</div>
           <div className="sheet-meta">{editing ? (editing.invoice_qbo_id ? "Change lines or rates, then update the QuickBooks invoice" : "Change lines or rates, then save") : <>Fill out like a QuickBooks invoice — save when ready · <b>{customers.length}</b> customers, <b>{catalog.length}</b> items loaded</>}</div>
         </div>
+        {!editing && (
+          <label className="btn btn-outline btn-sm" style={{cursor:"pointer",whiteSpace:"nowrap",opacity:docBusy?0.6:1}}>
+            {docBusy ? "⏳ Reading document…" : "📄 Upload PO / Estimate"}
+            <input type="file" accept=".pdf,image/*" onChange={onDocFile} disabled={docBusy} style={{display:"none"}}/>
+          </label>
+        )}
       </div>
+
+      {docReview && (
+        <div style={{border:"2px solid #2563eb",borderRadius:10,padding:14,marginBottom:14,background:"#f7faff"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:15}}>📄 Review what I read — nothing is saved yet</div>
+              <div style={{fontSize:12,color:"var(--muted)"}}>{docReview.fileName} · detected: <b>{docReview.p.doc_type==="po"?"Purchase Order":docReview.p.doc_type==="estimate"?"Estimate":docReview.p.doc_type==="invoice"?"Invoice":"Document"}</b>{docReview.p.total ? ` · document total ${fmt$(docReview.p.total)}` : ""}</div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button className="btn-text" onClick={()=>setDocReview(null)}>Cancel</button>
+              <button className="btn btn-primary btn-sm" onClick={applyDoc}>Use this → fill work order</button>
+            </div>
+          </div>
+          {docReview.p.warnings.length>0 && <div className="ic-issue warn" style={{marginTop:8}}>⚠ {docReview.p.warnings.join(" · ")}</div>}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginTop:10,fontSize:13}}>
+            <div>
+              <div className="label">Customer</div>
+              <select className="input" value={docReview.custName} onChange={e=>{ const v=e.target.value; const c=customers.find(x=>x.display_name===v); setDocReview(r=>({...r,custName:v,cust:c||null,custScore:c?1:0})); }}>
+                {!docReview.cust && <option value={docReview.p.customer_name}>{docReview.p.customer_name || "(none read)"} — new customer</option>}
+                {customers.map(c=><option key={c.id} value={c.display_name}>{c.display_name}</option>)}
+              </select>
+              <div style={{fontSize:11,marginTop:2,color: docReview.cust ? (docReview.custScore>=0.99 ? "var(--inv)" : "var(--brass)") : "var(--red)"}}>
+                {docReview.cust ? (docReview.custScore>=0.99 ? "✓ exact match" : `≈ best match for "${docReview.p.customer_name}" — please confirm`) : `Not in your customers — will be added as "${docReview.p.customer_name || "?"}"`}
+              </div>
+            </div>
+            <div>
+              <div className="label">PO / Ref #</div>
+              <select className="input" value={docReview.poPick} onChange={e=>setDocReview(r=>({...r,poPick:e.target.value}))}>
+                <option value={docReview.p.po_number}>{docReview.p.po_number}{docReview.p.po_source ? ` — from "${docReview.p.po_source}"` : ""}{docReview.p.po_number!=="N/A" ? " ✓ best pick" : ""}</option>
+                {(docReview.p.po_candidates||[]).filter(c=>c.value && c.value!==docReview.p.po_number).map((c,i)=><option key={i} value={c.value}>{c.value} — {c.label}</option>)}
+                {docReview.p.po_number!=="N/A" && <option value="N/A">N/A — no PO used</option>}
+              </select>
+              <div style={{fontSize:11,marginTop:2,color: docReview.p.po_number==="N/A" ? "var(--muted)" : "var(--inv)"}}>
+                {docReview.p.po_number==="N/A"
+                  ? ((docReview.p.po_candidates||[]).length ? "No PO found — other numbers on the document are listed if one applies" : "No PO or reference number found on this document")
+                  : `Auto-picked the customer's PO${(docReview.p.po_candidates||[]).length>1 ? " — other numbers on the page are in the list if a different one is right" : ""}`}
+              </div>
+            </div>
+            <div><div className="label">Date</div><div className="input" style={{background:"#fff"}}>{docReview.p.doc_date || <span style={{color:"var(--muted)"}}>none found (keeps today)</span>}</div></div>
+          </div>
+          <div style={{marginTop:10,overflowX:"auto"}}>
+            <table className="ic-prev" style={{background:"#fff"}}>
+              <thead><tr><th>Item (from document)</th><th>Matched to your catalog</th><th>Qty</th><th>Doc price</th><th>Your base</th><th>Use</th></tr></thead>
+              <tbody>
+                {docReview.lines.map((l,i)=>(
+                  <tr key={i}>
+                    <td style={{whiteSpace:"normal",maxWidth:220}}><b>{l.item || l.description}</b>{l.item && l.description && l.description!==l.item ? <div style={{color:"var(--muted)"}}>{l.description}</div> : null}</td>
+                    <td style={{whiteSpace:"normal",minWidth:180}}>
+                      <select className="input" style={{fontSize:12,padding:"4px 6px"}} value={l.match?`${l.match.source}:${l.match.id}`:""} onChange={e=>{ const v=e.target.value; const it=catalog.find(x=>`${x.source}:${x.id}`===v)||null; setDocReview(r=>({...r,lines:r.lines.map((x,idx)=>idx===i?{...x,match:it,score:it?1:0}:x)})); }}>
+                        <option value="">— not matched (add as typed) —</option>
+                        {catalog.map(x=><option key={`${x.source}:${x.id}`} value={`${x.source}:${x.id}`}>{x.name}{x.sku?` (${x.sku})`:""}</option>)}
+                      </select>
+                      {l.match && <div style={{fontSize:11,color:l.score>=0.99?"var(--inv)":"var(--brass)"}}>{l.score>=0.99?"✓ exact":"≈ suggested — confirm"}</div>}
+                    </td>
+                    <td>{l.qty}</td>
+                    <td>{fmt$(l.unit_price)}</td>
+                    <td>{l.match ? fmt$(l.match.base) : <span style={{color:"var(--muted)"}}>—</span>}</td>
+                    <td>
+                      <select className="input" style={{fontSize:12,padding:"4px 6px"}} value={l.usePrice} disabled={!l.match} onChange={e=>{ const v=e.target.value; setDocReview(r=>({...r,lines:r.lines.map((x,idx)=>idx===i?{...x,usePrice:v}:x)})); }}>
+                        <option value="doc">Doc price</option>
+                        <option value="ours">Our price</option>
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+                {docReview.lines.length===0 && <tr><td colSpan={6} style={{color:"var(--muted)"}}>No line items could be read from this document.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div style={{fontSize:12,color:"var(--muted)",marginTop:8}}>"Doc price" keeps what's on the document (what the customer agreed to). "Our price" uses your catalog with this customer's tier applied. Every line stays editable after filling.</div>
+        </div>
+      )}
 
       {err && <div className="alert alert-error">{err}</div>}
 
@@ -972,6 +1116,13 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
         <div className="fg">
           <label className="label">Technician</label>
           <input className="input" value={technician} onChange={e=>setTechnician(e.target.value)} placeholder="Tech name"/>
+        </div>
+        <div className="fg">
+          <label className="label">Customer PO #</label>
+          <div style={{display:"flex",gap:6}}>
+            <input className="input" value={poNumber} onChange={e=>setPoNumber(e.target.value)} placeholder="PO number — or N/A if none" style={{flex:1}}/>
+            <button type="button" className="btn btn-outline btn-sm" onClick={()=>setPoNumber(poNumber==="N/A" ? "" : "N/A")} style={{whiteSpace:"nowrap"}} title="Mark that no PO is used">{poNumber==="N/A" ? "Clear" : "N/A"}</button>
+          </div>
         </div>
       </div>
 
@@ -1063,7 +1214,7 @@ function buildWoPdf(wo, hideRates){
   doc.setFontSize(12); doc.text("#"+wo.id, 196, 20, {align:"right"});
   doc.setFontSize(10); doc.setFont(undefined,"normal");
   doc.text("Customer: "+(wo.customer||""), 14, 32);
-  doc.text("Date: "+(wo.date||"")+"     Tech: "+(wo.technician||"—"), 14, 38);
+  doc.text("Date: "+(wo.date||"")+"     Tech: "+(wo.technician||"—")+(wo.po_number ? "     PO: "+wo.po_number : ""), 14, 38);
   doc.line(14, 44, 196, 44);
   let y = 52;
   doc.setFont(undefined,"bold");
@@ -1228,7 +1379,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
                   <div className="wo-id">WO #{wo.id} · {wo.date}</div>
                   <div className="wo-customer">{wo.customer}</div>
                   <div className="wo-info">
-                    {wo.technician || "—"} · {(wo.lines||[]).length} line{(wo.lines||[]).length!==1?"s":""}
+                    {wo.technician || "—"} · {(wo.lines||[]).length} line{(wo.lines||[]).length!==1?"s":""}{wo.po_number ? <> · PO <b>{wo.po_number}</b></> : null}
                   </div>
                 </div>
               </div>
