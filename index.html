@@ -154,6 +154,44 @@ body {
 .step-pill { position: absolute; top: 10px; right: 12px; background: var(--wip); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; min-width: 22px; text-align: center; }
 .step-card.s1 .step-pill { background: var(--go); }
 .step-card.s3 .step-pill { background: var(--inv); }
+.step-card.s6 { border-left: 6px solid #6d3fc4; background: linear-gradient(to right, #efe7fb 0%, #fff 30%); }
+.step-card.s6.active { color: #6d3fc4; }
+.step-card.s7 { border-left: 6px solid #d97706; background: linear-gradient(to right, #fdf0dc 0%, #fff 30%); }
+.step-card.s7.active { color: #d97706; }
+/* ── Import Center stepper ── */
+.ic-steps { display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
+.ic-step { flex:1; min-width:104px; border-radius:8px; padding:10px 12px; font-size:12px; font-weight:700; color:#fff; opacity:.42; display:flex; align-items:center; gap:8px; }
+.ic-step.on { opacity:1; box-shadow:0 2px 8px rgba(0,0,0,.18); }
+.ic-step.done { opacity:.8; }
+.ic-step .n { width:22px; height:22px; border-radius:50%; background:rgba(255,255,255,.3); display:flex; align-items:center; justify-content:center; font-size:11px; flex-shrink:0; }
+.ic-1{background:#2563eb} .ic-2{background:#16a34a} .ic-3{background:#ca8a04} .ic-4{background:#ea580c} .ic-5{background:#7c3aed}
+.ic-choice { border:2px solid var(--line); border-radius:10px; padding:14px; cursor:pointer; background:#fff; transition:all .15s; }
+.ic-choice:hover { transform:translateY(-1px); box-shadow:0 2px 6px rgba(0,0,0,.06); }
+.ic-choice.sel { border-color:#2563eb; background:#eef4ff; }
+.ic-choice h4 { margin:0 0 4px; font-size:15px; }
+.ic-choice p { margin:0; font-size:12px; color:var(--muted); line-height:1.4; }
+.ic-map-row { display:grid; grid-template-columns:150px 1fr; gap:8px; align-items:center; margin-bottom:8px; font-size:13px; }
+.ic-prev { width:100%; border-collapse:collapse; font-size:12px; }
+.ic-prev th,.ic-prev td { border:1px solid var(--line); padding:4px 6px; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:160px; }
+.ic-prev th { background:#f6f6f2; }
+.ic-issue { font-size:12px; padding:6px 10px; border-radius:6px; margin-bottom:6px; }
+.ic-issue.warn { background:#fef9e7; border:1px solid #e7c389; }
+.ic-issue.bad { background:#fdecec; border:1px solid #e5a0a0; color:#8b1a1a; }
+.ic-issue.ok { background:#eef6f1; border:1px solid #2ca01c; }
+/* ── Dashboard ── */
+.dash-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:14px; }
+.dash-card { border-radius:10px; padding:14px; color:#fff; }
+.dash-card .lbl { font-size:11px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; opacity:.88; }
+.dash-card .val { font-size:24px; font-weight:800; margin-top:4px; }
+.dash-card .sub { font-size:12px; opacity:.88; margin-top:2px; }
+.dash-a{background:linear-gradient(135deg,#2563eb,#3b82f6)} .dash-b{background:linear-gradient(135deg,#16a34a,#22c55e)} .dash-c{background:linear-gradient(135deg,#7c3aed,#a78bfa)} .dash-d{background:linear-gradient(135deg,#ea580c,#fb923c)}
+.dash-section { background:#fff; border:1.5px solid var(--line); border-radius:8px; padding:14px; margin-bottom:12px; }
+.dash-section h3 { margin:0 0 10px; font-size:14px; }
+.dash-bar { display:flex; align-items:flex-end; gap:6px; height:96px; }
+.dash-bar > div { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; font-size:10px; color:var(--muted); height:100%; }
+.dash-bar .b { width:100%; background:linear-gradient(to top,#2563eb,#60a5fa); border-radius:4px 4px 0 0; }
+.dash-row { display:flex; justify-content:space-between; gap:8px; font-size:13px; padding:6px 0; border-bottom:1px solid #f0f0ea; }
+.dash-row:last-child { border-bottom:none; }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /*  WORKSHEET (QBO-style)                                                      */
@@ -601,8 +639,8 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
   const canCreate = !isViewer;                              // WO-only, WO+invoice, admin
   const mayInvoice = !isViewer && (isAdmin || canInvoice);  // WO+invoice or admin
   useEffect(() => {
-    if (isViewer && step !== 2 && step !== 3) setStep(2);
-    else if (!isAdmin && step === 4) setStep(2);
+    if (isViewer && ![2,3,6].includes(step)) setStep(2);
+    else if (!isAdmin && (step === 4 || step === 7)) setStep(2);
     else if (!canCreate && (step === 1 || step === 5)) setStep(2);
   }, [step, isViewer, isAdmin, canCreate]);
 
@@ -689,6 +727,8 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
         )}
 
         {step === 4 && isAdmin && <PriceBook tenant={tenant} />}
+        {step === 6 && <Dashboard workOrders={workOrders} tenant={tenant} onOpenJobs={()=>setStep(2)} />}
+        {step === 7 && isAdmin && <ImportCenter tenant={tenant} onDone={()=>setStep(4)} />}
 
         {step === 5 && canCreate && (
           <CreateWO
@@ -707,6 +747,11 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
 function StepRibbon({ step, setStep, openCount, hasEditing, canCreate, isAdmin }) {
   return (
     <div className="step-ribbon">
+      <div className={`step-card s6 ${step===6?"active":""}`} onClick={()=>setStep(6)}>
+        <div className="step-num">Home</div>
+        <div className="step-title">Dashboard</div>
+        <div className="step-meta">Jobs · revenue · techs</div>
+      </div>
       {canCreate && (
       <div className={`step-card s1 ${step===1?"active":""}`} onClick={()=>setStep(1)}>
         <div className="step-num">Step 1</div>
@@ -731,7 +776,14 @@ function StepRibbon({ step, setStep, openCount, hasEditing, canCreate, isAdmin }
       <div className={`step-card ${step===4?"active":""}`} onClick={()=>setStep(4)}>
         <div className="step-num">Setup</div>
         <div className="step-title">Price Book</div>
-        <div className="step-meta">Tiers · import list</div>
+        <div className="step-meta">Tiers · pricing</div>
+      </div>
+      )}
+      {isAdmin && (
+      <div className={`step-card s7 ${step===7?"active":""}`} onClick={()=>setStep(7)}>
+        <div className="step-num">Setup</div>
+        <div className="step-title">Import Center</div>
+        <div className="step-meta">Products · price levels · customers</div>
       </div>
       )}
     </div>
@@ -1060,20 +1112,26 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
   const [selected, setSelected] = useState({});
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchResult, setBatchResult] = useState(null);
-  const selectedIds = open.filter(w => selected[w.id]).map(w => w.id);
+  // Work orders invoiced during this session — kept out of re-selection even
+  // before the list reloads, so a work order can never be pushed to QBO twice.
+  const [invoicedNow, setInvoicedNow] = useState({});
+  const selectable = open.filter(w => !w.invoice_qbo_id && !invoicedNow[w.id]);
+  const selectedIds = selectable.filter(w => selected[w.id]).map(w => w.id);
   const toggleOne = (id) => setSelected(s => ({ ...s, [id]: !s[id] }));
   const toggleAll = () => {
-    if (selectedIds.length === open.length) setSelected({});
-    else { const all = {}; open.forEach(w => all[w.id] = true); setSelected(all); }
+    if (selectedIds.length === selectable.length) setSelected({});
+    else { const all = {}; selectable.forEach(w => all[w.id] = true); setSelected(all); }
   };
   const runBatch = async () => {
     if (!qboConnected) { alert("Connect QuickBooks first in Settings."); return; }
-    const targets = open.filter(w => selected[w.id]);
+    const targets = selectable.filter(w => selected[w.id]);
     if (!targets.length) return;
     if (!window.confirm(`Create ${targets.length} live invoice${targets.length!==1?"s":""} in QuickBooks?\n\nEach is saved (not sent) so you can review before sending.`)) return;
     setBatchResult(null); setBatchRunning(true);
-    const ok = [], fail = [];
+    const ok = [], fail = [], unmarked = [];
     for (const wo of targets) {
+      // Never push a work order that already carries an invoice.
+      if (wo.invoice_qbo_id || invoicedNow[wo.id]) { fail.push({ id: wo.id, error: "already invoiced — skipped to prevent a duplicate" }); continue; }
       try {
         const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-create-invoice`, {
           method: "POST",
@@ -1082,15 +1140,25 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.error || "QBO push failed");
-        await supabase.from("work_orders").update({
-          status: "invoiced", invoice_no: data.invoiceNum, invoice_qbo_id: data.invoiceId, invoiced_by: user.email,
-        }).eq("id", wo.id);
-        ok.push({ id: wo.id, num: data.invoiceNum });
+        // QuickBooks has the invoice now — lock this WO immediately so it can't be re-pushed.
+        setInvoicedNow(s => ({ ...s, [wo.id]: true }));
+        // Mark it invoiced locally; retry a couple of times if the write blips.
+        let marked = false, lastErr = null;
+        for (let attempt = 0; attempt < 3 && !marked; attempt++) {
+          const { error: uErr } = await supabase.from("work_orders").update({
+            status: "invoiced", invoice_no: data.invoiceNum, invoice_qbo_id: data.invoiceId, invoiced_by: user.email,
+          }).eq("id", wo.id);
+          if (!uErr) marked = true; else { lastErr = uErr; await new Promise(r => setTimeout(r, 400)); }
+        }
+        if (marked) ok.push({ id: wo.id, num: data.invoiceNum });
+        else unmarked.push({ id: wo.id, num: data.invoiceNum, error: lastErr ? lastErr.message : "unknown" });
       } catch (e) {
         fail.push({ id: wo.id, error: e.message });
       }
+      // Brief pause between pushes so QuickBooks doesn't throttle a long batch.
+      await new Promise(r => setTimeout(r, 350));
     }
-    setBatchResult({ ok, fail });
+    setBatchResult({ ok, fail, unmarked });
     setSelected({});
     setBatchRunning(false);
     onReload && onReload();
@@ -1116,6 +1184,13 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
             {batchResult.fail.length > 0 && (
               <div style={{marginTop:6}}>
                 {batchResult.fail.map(f => <div key={f.id} style={{color:"var(--red)"}}>WO #{f.id}: {f.error}</div>)}
+              </div>
+            )}
+            {batchResult.unmarked && batchResult.unmarked.length > 0 && (
+              <div style={{marginTop:8,padding:"8px 10px",background:"#fdecec",border:"1px solid #e5a0a0",borderRadius:6,color:"#8b1a1a"}}>
+                <b>⚠ Invoiced in QuickBooks but couldn't be marked here — do NOT invoice these again:</b>
+                {batchResult.unmarked.map(u => <div key={u.id}>WO #{u.id} → QuickBooks invoice #{u.num}</div>)}
+                <div style={{marginTop:4,fontSize:12}}>Refresh the page; they should show as invoiced. If not, tell support.</div>
               </div>
             )}
           </div>
@@ -1225,6 +1300,7 @@ function InvoicePush({ wo, qboConnected, user, onDone, onBack, mayInvoice }) {
 
   const pushToQbo = async () => {
     if (!qboConnected) { setErr("QuickBooks is not connected. Connect it in Settings first."); return; }
+    if (wo.invoice_qbo_id) { setErr(`This work order already has QuickBooks invoice #${wo.invoice_no || wo.invoice_qbo_id} — not creating another.`); return; }
     if (!window.confirm(`Post a LIVE invoice to QuickBooks for ${wo.customer}?\n\nIt will be saved (not sent) so you can review it in QuickBooks before sending.`)) return;
     setErr(""); setPushing(true);
     try {
@@ -1236,12 +1312,13 @@ function InvoicePush({ wo, qboConnected, user, onDone, onBack, mayInvoice }) {
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "QBO push failed");
 
-      await supabase.from("work_orders").update({
+      const { error: uErr } = await supabase.from("work_orders").update({
         status: "invoiced",
         invoice_no: data.invoiceNum,
         invoice_qbo_id: data.invoiceId,
         invoiced_by: user.email,
       }).eq("id", wo.id);
+      if (uErr) setErr(`Invoice #${data.invoiceNum} was created in QuickBooks, but marking it here failed (${uErr.message}). Do NOT create it again — refresh and it should show as invoiced.`);
 
       const qboUrl = `https://app.qbo.intuit.com/app/invoice?txnId=${data.invoiceId}`;
       setPosted({ id: data.invoiceId, num: data.invoiceNum, url: qboUrl });
@@ -1517,6 +1594,369 @@ function TeamSection({ tenant, currentUserId }) {
 // ─── PRICE BOOK (matrix + tiers + import) ────────────────────────────────────
 function Field({ label, children }) {
   return <div style={{marginBottom:10}}><div className="label" style={{marginBottom:4}}>{label}</div>{children}</div>;
+}
+
+
+// ─── DASHBOARD ───────────────────────────────────────────────────────────────
+function Dashboard({ workOrders, tenant, onOpenJobs }) {
+  const qtyOf = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
+  const woTotal = (wo) => (wo.lines||[]).reduce((s,l)=> s + qtyOf(l)*(Number(l.rate)||0), 0);
+  const now = new Date();
+  const ym = (d) => { const x = new Date(d); return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0"); };
+  const thisYM = ym(now);
+  const open = workOrders.filter(w => w.status === "open");
+  const invoiced = workOrders.filter(w => w.status === "invoiced");
+  const invThisMonth = invoiced.filter(w => ym(w.date || w.created_at) === thisYM);
+  const openVal = open.reduce((s,w)=>s+woTotal(w),0);
+  const monthRev = invThisMonth.reduce((s,w)=>s+woTotal(w),0);
+  const allRev = invoiced.reduce((s,w)=>s+woTotal(w),0);
+  const months = [];
+  for (let i=5;i>=0;i--){ const d=new Date(now.getFullYear(), now.getMonth()-i, 1); months.push({ key: ym(d), label: d.toLocaleString("default",{month:"short"}) }); }
+  const revByMonth = months.map(m => ({ ...m, v: invoiced.filter(w=>ym(w.date||w.created_at)===m.key).reduce((s,w)=>s+woTotal(w),0) }));
+  const maxRev = Math.max(1, ...revByMonth.map(m=>m.v));
+  const techMap = {};
+  invoiced.forEach(w => { const t=(w.technician||"").trim()||"Unassigned"; techMap[t]=techMap[t]||{n:0,v:0}; techMap[t].n++; techMap[t].v+=woTotal(w); });
+  const topTechs = Object.entries(techMap).sort((a,b)=>b[1].v-a[1].v).slice(0,5);
+  const custMap = {};
+  invoiced.forEach(w => { const c=(w.customer||"").trim()||"—"; custMap[c]=custMap[c]||{n:0,v:0}; custMap[c].n++; custMap[c].v+=woTotal(w); });
+  const topCust = Object.entries(custMap).sort((a,b)=>b[1].v-a[1].v).slice(0,5);
+  const recent = workOrders.slice(0,6);
+  return (
+    <div className="sheet">
+      <div className="sheet-h">
+        <div>
+          <div className="sheet-title">Dashboard</div>
+          <div className="sheet-meta">{tenant.name} · live snapshot of your business</div>
+        </div>
+      </div>
+      <div className="dash-grid">
+        <div className="dash-card dash-a" onClick={onOpenJobs} style={{cursor:"pointer"}}>
+          <div className="lbl">Open jobs</div>
+          <div className="val">{open.length}</div>
+          <div className="sub">{fmt$(openVal)} awaiting invoice</div>
+        </div>
+        <div className="dash-card dash-b">
+          <div className="lbl">Invoiced this month</div>
+          <div className="val">{fmt$(monthRev)}</div>
+          <div className="sub">{invThisMonth.length} invoice{invThisMonth.length!==1?"s":""}</div>
+        </div>
+        <div className="dash-card dash-c">
+          <div className="lbl">All-time invoiced</div>
+          <div className="val">{fmt$(allRev)}</div>
+          <div className="sub">{invoiced.length} total</div>
+        </div>
+        <div className="dash-card dash-d">
+          <div className="lbl">Avg job value</div>
+          <div className="val">{fmt$(invoiced.length ? allRev/invoiced.length : 0)}</div>
+          <div className="sub">per invoice</div>
+        </div>
+      </div>
+      <div className="dash-section">
+        <h3>Revenue — last 6 months</h3>
+        <div className="dash-bar">
+          {revByMonth.map(m => (
+            <div key={m.key} title={fmt$(m.v)}>
+              <div style={{fontSize:10,marginBottom:2,color:"var(--ink)",fontWeight:600}}>{m.v>0?fmt$(m.v):""}</div>
+              <div className="b" style={{height: Math.max(3, Math.round(m.v/maxRev*60))+"px"}}></div>
+              <div style={{marginTop:4}}>{m.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12}}>
+        <div className="dash-section">
+          <h3>Top technicians</h3>
+          {topTechs.length===0 && <div style={{fontSize:13,color:"var(--muted)"}}>No invoiced work yet.</div>}
+          {topTechs.map(([t,x]) => <div key={t} className="dash-row"><span>{t}</span><span><b>{fmt$(x.v)}</b> · {x.n} job{x.n!==1?"s":""}</span></div>)}
+        </div>
+        <div className="dash-section">
+          <h3>Top customers</h3>
+          {topCust.length===0 && <div style={{fontSize:13,color:"var(--muted)"}}>No invoiced work yet.</div>}
+          {topCust.map(([c,x]) => <div key={c} className="dash-row"><span>{c}</span><span><b>{fmt$(x.v)}</b> · {x.n}</span></div>)}
+        </div>
+      </div>
+      <div className="dash-section">
+        <h3>Recent activity</h3>
+        {recent.length===0 && <div style={{fontSize:13,color:"var(--muted)"}}>No work orders yet — create your first one.</div>}
+        {recent.map(w => (
+          <div key={w.id} className="dash-row">
+            <span>WO #{w.id} · {w.customer||"—"}</span>
+            <span style={{color: w.status==="invoiced" ? "var(--inv)" : "var(--wip)", fontWeight:600, whiteSpace:"nowrap"}}>
+              {w.status==="invoiced" ? `Invoiced${w.invoice_no?" #"+w.invoice_no:""}` : "Open"} · {fmt$(woTotal(w))}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── IMPORT CENTER ────────────────────────────────────────────────────────────
+function ImportCenter({ tenant, onDone }) {
+  const [step, setStep] = useState(1);
+  const [kind, setKind] = useState(null);
+  const [rows, setRows] = useState(null);
+  const [cols, setCols] = useState([]);
+  const [fileName, setFileName] = useState("");
+  const [sheetName, setSheetName] = useState("");
+  const [map, setMap] = useState({ name:"", sku:"", price:"", tier:"", levels:[] });
+  const [existing, setExisting] = useState({ items:[], customers:[], levels:[] });
+  const [review, setReview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => { (async () => {
+    const [it, cu, lv] = await Promise.all([
+      supabase.from("custom_skus").select("id,sku,name,price").eq("tenant_id",tenant.id),
+      supabase.from("customers").select("id,display_name,primary_price_level_id").eq("tenant_id",tenant.id),
+      supabase.from("price_levels").select("id,name,rank").eq("tenant_id",tenant.id).order("rank"),
+    ]);
+    setExisting({ items: it.data||[], customers: cu.data||[], levels: lv.data||[] });
+  })(); }, [tenant.id]);
+
+  // Auto-match spreadsheet headers to our fields (Sage, QuickBooks, Excel names all covered)
+  const autoMap = (kd, cs) => {
+    const n = (x)=>String(x||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+    const find = (pats) => cs.find(c => pats.some(p => n(c)===p)) || cs.find(c => pats.some(p => n(c).includes(p))) || "";
+    const levelCols = cs.filter(c => /level|tier|price\s*\d|sales\s*price|list\s*\d|rate\s*\d/i.test(String(c)) && !/base|standard|cost/i.test(String(c)));
+    if (kd === "customers") return { name: find(["customername","customer","companyname","company","displayname","client","name"]), sku:"", price:"", tier: find(["pricelevel","pricetier","tier","level","group"]), levels:[] };
+    const base = find(["baseprice","unitprice","salesprice","standardprice","listprice","defaultrate","price","rate","cost"]);
+    return {
+      name: find(["itemname","productname","itemdescription","description","name","item","product","service","title"]),
+      sku: find(["sku","itemcode","itemid","itemnumber","partnumber","productcode","code","number","id"]),
+      price: base,
+      tier:"",
+      levels: kd==="levels" ? levelCols.filter(c=>c!==base) : [],
+    };
+  };
+
+  const onFile = async (e) => {
+    const f = e.target.files[0]; if(!f) return;
+    setErr("");
+    try {
+      const buf = await f.arrayBuffer();
+      const wb = window.XLSX.read(buf,{type:"array"});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rs = window.XLSX.utils.sheet_to_json(ws,{defval:null});
+      if(!rs.length){ setErr("No rows found in that file. Make sure the first row has your column headers."); return; }
+      const cs = Object.keys(rs[0]);
+      setRows(rs); setCols(cs); setFileName(f.name); setSheetName(wb.SheetNames[0]);
+      setMap(autoMap(kind, cs));
+      setStep(3);
+    } catch(ex){ setErr("Could not read file: "+ex.message); }
+  };
+
+  const toggleLevel = (c) => setMap(m => ({...m, levels: m.levels.includes(c) ? m.levels.filter(x=>x!==c) : [...m.levels, c]}));
+  const orderedLevels = () => cols.filter(c => map.levels.includes(c));
+  const num = (v) => { if(v===null||v===undefined||v==="") return null; const x=parseFloat(String(v).replace(/[$,\s]/g,"")); return isNaN(x)?NaN:x; };
+
+  const buildReview = () => {
+    const issues = []; let add=0, upd=0, skip=0;
+    const seen = new Set(); const valid = [];
+    rows.forEach((r,i) => {
+      const line = i+2;
+      const name = String(r[map.name]??"").trim();
+      if(!name){ skip++; issues.push({t:"bad", m:`Row ${line}: blank name — skipped`}); return; }
+      const key = kind==="customers" ? name : (map.sku ? (String(r[map.sku]??"").trim() || name) : name);
+      if (seen.has(key.toLowerCase())) { skip++; issues.push({t:"warn", m:`Row ${line}: duplicate "${name}" in file — first one wins`}); return; }
+      seen.add(key.toLowerCase());
+      const exists = kind==="customers"
+        ? existing.customers.find(c=>(c.display_name||"").toLowerCase()===name.toLowerCase())
+        : existing.items.find(it => (it.sku||"")===key);
+      if (kind!=="customers" && map.price) { const p=num(r[map.price]); if (p!==null && isNaN(p)) issues.push({t:"warn", m:`Row ${line}: "${name}" price "${r[map.price]}" isn't a number — will be left as-is`}); }
+      if (kind==="levels") orderedLevels().forEach(c => { const p=num(r[c]); if (p!==null && isNaN(p)) issues.push({t:"warn", m:`Row ${line}: "${name}" ${c} = "${r[c]}" isn't a number — skipped for that level`}); });
+      if (kind==="customers" && map.tier && r[map.tier]!=null && String(r[map.tier]).trim()!=="") {
+        const t=parseInt(String(r[map.tier]).replace(/[^0-9]/g,""));
+        if (t && !existing.levels.find(l=>l.rank===t)) issues.push({t:"warn", m:`Row ${line}: "${name}" tier ${t} doesn't exist yet — left unassigned (create it in Price Book first)`});
+      }
+      if (exists) upd++; else add++;
+      valid.push(r);
+    });
+    setReview({ issues, add, upd, skip, total: rows.length, valid });
+    setStep(4);
+  };
+
+  const runImport = async () => {
+    setBusy(true); setErr("");
+    try {
+      let added=0, updated=0;
+      if (kind === "customers") {
+        const rankToId={}; existing.levels.forEach(l=>rankToId[l.rank]=l.id);
+        let cur=[...existing.customers];
+        for (const r of review.valid) {
+          const name=String(r[map.name]??"").trim();
+          const t = map.tier ? parseInt(String(r[map.tier]??"").replace(/[^0-9]/g,"")) : NaN;
+          const plId = rankToId[t] || null;
+          const ex=cur.find(c=>(c.display_name||"").toLowerCase()===name.toLowerCase());
+          if(ex){ if(plId){ const {error}=await supabase.from("customers").update({primary_price_level_id:plId}).eq("id",ex.id); if(error) throw error; } updated++; }
+          else { const {data,error}=await supabase.from("customers").insert({tenant_id:tenant.id,display_name:name,primary_price_level_id:plId,active:true}).select("id").single(); if(error) throw error; cur.push({id:data.id,display_name:name,primary_price_level_id:plId}); added++; }
+        }
+      } else {
+        const lvCols = kind==="levels" ? orderedLevels() : [];
+        let lv=[...existing.levels];
+        if (lv.length < lvCols.length) {
+          const toAdd=[]; for(let r=lv.length+1;r<=lvCols.length;r++) toAdd.push({tenant_id:tenant.id,name:"Price Level "+r,rank:r,mode:"percent",default_adjustment:0,active:true});
+          if(toAdd.length){ const {error}=await supabase.from("price_levels").insert(toAdd); if(error) throw error; }
+          const {data}=await supabase.from("price_levels").select("id,name,rank").eq("tenant_id",tenant.id).order("rank"); lv=data||[];
+        }
+        const rankToId={}; lv.forEach(l=>rankToId[l.rank]=l.id);
+        let cur=[...existing.items];
+        for (const r of review.valid) {
+          const name=String(r[map.name]??"").trim();
+          const sku = map.sku ? (String(r[map.sku]??"").trim() || name) : name;
+          const pRaw = map.price ? num(r[map.price]) : null;
+          const base = (pRaw===null||isNaN(pRaw)) ? null : pRaw;
+          let itemId; const ex=cur.find(i=>(i.sku||"")===sku);
+          if(ex){ itemId=ex.id; const patch={name}; if(base!==null) patch.price=base; const {error}=await supabase.from("custom_skus").update(patch).eq("id",itemId); if(error) throw error; updated++; }
+          else { const {data,error}=await supabase.from("custom_skus").insert({tenant_id:tenant.id,sku,name,price:base??0,item_group:"Imported"}).select("id").single(); if(error) throw error; itemId=data.id; cur.push({id:itemId,sku,name,price:base??0}); added++; }
+          if (lvCols.length) {
+            const pr=[];
+            lvCols.forEach((col,idx)=>{ const v=num(r[col]); if(v!==null && !isNaN(v)) pr.push({tenant_id:tenant.id,price_level_id:rankToId[idx+1],item_id:itemId,item_source:"custom",override_mode:"custom",override_value:v}); });
+            if(pr.length){ const {error}=await supabase.from("price_level_items").upsert(pr,{onConflict:"price_level_id,item_source,item_id"}); if(error) throw error; }
+          }
+        }
+      }
+      setResult({ added, updated, skipped: review.skip });
+      setStep(5);
+    } catch(ex){ setErr("Import stopped: "+ex.message+" — rows before this point were saved; fix the file and re-import (existing rows update, they won't duplicate)."); }
+    setBusy(false);
+  };
+
+  const reset = () => { setStep(1); setKind(null); setRows(null); setCols([]); setMap({name:"",sku:"",price:"",tier:"",levels:[]}); setReview(null); setResult(null); setErr(""); setFileName(""); };
+
+  const KINDS = [
+    { id:"products", t:"Products & Services", d:"Your item list with a base price — from Sage, QuickBooks, or any spreadsheet." },
+    { id:"levels", t:"Price Levels", d:"Items with tiered prices, one column per level (Level 1, Level 2…). Sage 'Sales Price 1–5' works as-is." },
+    { id:"customers", t:"Customers", d:"Customer names, optionally with the price tier each one gets." },
+  ];
+  const STEPS = ["Choose","Upload","Map","Review","Done"];
+  const canMap = !!map.name && (kind!=="levels" || map.levels.length>0);
+  const sample = rows ? rows.slice(0,5) : [];
+  const sel = (v, on) => <select className="input" value={v} onChange={e=>on(e.target.value)}><option value="">{"— choose —"}</option>{cols.map(c=><option key={c} value={c}>{c}</option>)}</select>;
+
+  return (
+    <div className="sheet">
+      <div className="sheet-h">
+        <div>
+          <div className="sheet-title">Import Center</div>
+          <div className="sheet-meta">Bring in products, price levels, or customers from Sage, Excel, or CSV — guided, with a full preview before anything saves</div>
+        </div>
+        {step>1 && step<5 && <button className="btn btn-outline btn-sm" onClick={reset}>Start over</button>}
+      </div>
+
+      <div className="ic-steps">
+        {STEPS.map((nm,i) => { const n=i+1; return (
+          <div key={nm} className={`ic-step ic-${n} ${step===n?"on":""} ${step>n?"done":""}`}>
+            <div className="n">{step>n ? "✓" : n}</div>{nm}
+          </div>
+        );})}
+      </div>
+
+      {err && <div className="ic-issue bad">{err}</div>}
+
+      {step===1 && (
+        <div>
+          <div style={{fontSize:14,fontWeight:700,marginBottom:10}}>What are you importing?</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10}}>
+            {KINDS.map(k => (
+              <div key={k.id} className={`ic-choice ${kind===k.id?"sel":""}`} onClick={()=>setKind(k.id)}>
+                <h4>{k.t}</h4><p>{k.d}</p>
+              </div>
+            ))}
+          </div>
+          <div style={{marginTop:14}}>
+            <button className="btn btn-primary" disabled={!kind} onClick={()=>setStep(2)}>Next: upload file →</button>
+          </div>
+        </div>
+      )}
+
+      {step===2 && (
+        <div>
+          <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>Upload your file</div>
+          <div style={{fontSize:13,color:"var(--muted)",marginBottom:12,lineHeight:1.5}}>
+            Excel (.xlsx / .xls) or CSV. The first row should be your column headers — I'll match them automatically.
+            {kind==="levels" && <div style={{marginTop:6}}><b>Sage tip:</b> export your Item List with the "Sales Price 1–5" columns; each becomes a price level.</div>}
+            {kind==="products" && <div style={{marginTop:6}}>Needs columns like <b>Item / Name</b>, <b>SKU</b> (optional), and <b>Price</b>.</div>}
+            {kind==="customers" && <div style={{marginTop:6}}>Needs a <b>Customer / Company</b> name column, plus a <b>Tier</b> column if you assign price levels (1, 2, 3…).</div>}
+          </div>
+          <input type="file" accept=".xlsx,.xls,.csv" onChange={onFile} style={{fontSize:14}}/>
+          <div style={{marginTop:14}}><button className="btn-text" onClick={()=>setStep(1)}>← Back</button></div>
+        </div>
+      )}
+
+      {step===3 && rows && (
+        <div>
+          <div className="ic-issue ok">Read <b>{rows.length}</b> rows from <b>{fileName}</b>{sheetName?` (sheet "${sheetName}")`:""}. Columns matched automatically — check them below and fix any that are off.</div>
+          <div style={{fontSize:14,fontWeight:700,margin:"10px 0"}}>Match your columns</div>
+          <div className="ic-map-row"><div>{kind==="customers"?"Customer name":"Item name"} <span style={{color:"var(--red)"}}>*</span></div>{sel(map.name, v=>setMap(m=>({...m,name:v})))}</div>
+          {kind!=="customers" && <div className="ic-map-row"><div>SKU / item code</div>{sel(map.sku, v=>setMap(m=>({...m,sku:v})))}</div>}
+          {kind!=="customers" && <div className="ic-map-row"><div>{kind==="levels"?"Base price (optional)":"Price"}</div>{sel(map.price, v=>setMap(m=>({...m,price:v})))}</div>}
+          {kind==="customers" && <div className="ic-map-row"><div>Price tier (optional)</div>{sel(map.tier, v=>setMap(m=>({...m,tier:v})))}</div>}
+          {kind==="levels" && (
+            <div style={{margin:"10px 0"}}>
+              <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Price level columns <span style={{fontWeight:400,color:"var(--muted)"}}>(check them in tier order — {map.levels.length} selected)</span></div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                {cols.filter(c=>c!==map.name&&c!==map.sku).map(c => (
+                  <label key={c} style={{fontSize:13,display:"flex",alignItems:"center",gap:6,border:"1px solid var(--line)",borderRadius:6,padding:"4px 8px",background:map.levels.includes(c)?"#eef4ff":"#fff",cursor:"pointer"}}>
+                    <input type="checkbox" checked={map.levels.includes(c)} onChange={()=>toggleLevel(c)}/> {c}
+                    {map.levels.includes(c) && <b style={{color:"#2563eb"}}>L{orderedLevels().indexOf(c)+1}</b>}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={{fontSize:13,fontWeight:600,margin:"12px 0 6px"}}>Preview — first 5 rows exactly as they'll be read</div>
+          <div style={{overflowX:"auto"}}>
+            <table className="ic-prev"><thead><tr>{cols.map(c=><th key={c}>{c}</th>)}</tr></thead>
+              <tbody>{sample.map((r,i)=><tr key={i}>{cols.map(c=><td key={c}>{r[c]===null?"":String(r[c])}</td>)}</tr>)}</tbody></table>
+          </div>
+          <div style={{marginTop:14,display:"flex",gap:8,alignItems:"center"}}>
+            <button className="btn-text" onClick={()=>setStep(2)}>← Back</button>
+            <button className="btn btn-primary" disabled={!canMap} onClick={buildReview}>Next: review →</button>
+          </div>
+        </div>
+      )}
+
+      {step===4 && review && (
+        <div>
+          <div className="dash-grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))"}}>
+            <div className="dash-card dash-b"><div className="lbl">Will add</div><div className="val">{review.add}</div></div>
+            <div className="dash-card dash-a"><div className="lbl">Will update</div><div className="val">{review.upd}</div></div>
+            <div className="dash-card dash-d"><div className="lbl">Skipped</div><div className="val">{review.skip}</div></div>
+          </div>
+          {review.issues.length===0
+            ? <div className="ic-issue ok">✓ No problems found. Ready to import {review.valid.length} rows — nothing is saved until you click Import.</div>
+            : <div>
+                <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>{review.issues.length} thing{review.issues.length!==1?"s":""} to know — nothing is saved yet:</div>
+                <div style={{maxHeight:240,overflowY:"auto"}}>
+                  {review.issues.slice(0,80).map((x,i)=><div key={i} className={`ic-issue ${x.t}`}>{x.m}</div>)}
+                  {review.issues.length>80 && <div className="ic-issue warn">…and {review.issues.length-80} more</div>}
+                </div>
+              </div>}
+          <div style={{marginTop:14,display:"flex",gap:8,alignItems:"center"}}>
+            <button className="btn-text" onClick={()=>setStep(3)}>← Back to mapping</button>
+            <button className="btn btn-primary" disabled={busy||review.valid.length===0} onClick={runImport}>{busy?"Importing…":`Import ${review.valid.length} rows`}</button>
+          </div>
+        </div>
+      )}
+
+      {step===5 && result && (
+        <div>
+          <div className="ic-issue ok" style={{fontSize:14}}>✓ Import complete.</div>
+          <div className="dash-grid" style={{gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))"}}>
+            <div className="dash-card dash-b"><div className="lbl">Added</div><div className="val">{result.added}</div></div>
+            <div className="dash-card dash-a"><div className="lbl">Updated</div><div className="val">{result.updated}</div></div>
+            <div className="dash-card dash-d"><div className="lbl">Skipped</div><div className="val">{result.skipped}</div></div>
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button className="btn btn-primary" onClick={reset}>Import something else</button>
+            <button className="btn btn-outline" onClick={onDone}>Open Price Book →</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function PriceBook({ tenant }) {
@@ -2111,9 +2551,6 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
             <div style={{padding:"12px 14px", background:"#fafaf6", borderRadius:6, marginBottom:8}}>
               <div style={{fontSize:13, marginBottom:6}}>
                 📧 <a href="mailto:rodney@prompted2dothis.com" style={{color:"var(--inv)", fontWeight:600}}>rodney@prompted2dothis.com</a>
-              </div>
-              <div style={{fontSize:13, marginBottom:6}}>
-                📞 <a href="tel:8708304942" style={{color:"var(--inv)", fontWeight:600}}>(870) 830-4942</a>
               </div>
               <div style={{fontSize:11, color:"var(--muted)", marginTop:6}}>
                 Response within 24 hours during business days.
