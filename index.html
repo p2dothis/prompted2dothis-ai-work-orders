@@ -622,6 +622,8 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
   const [step, setStep] = useState(1);
   const [workOrders, setWorkOrders] = useState([]);
   const [editingWO, setEditingWO] = useState(null);
+  const [templateWO, setTemplateWO] = useState(null);
+  useEffect(() => { if (step !== 1) setTemplateWO(null); }, [step]);
   const [qboConnected, setQboConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
@@ -725,8 +727,10 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
 
         {step === 1 && canCreate && (
           <CreateWO
+            key={templateWO ? "tpl-" + templateWO.id : "new"}
             tenant={tenant} user={user} hideRates={hideRates} fuelAuto={fuelAuto}
-            onSaved={() => { loadWOs(); setStep(2); }}
+            template={templateWO}
+            onSaved={() => { setTemplateWO(null); loadWOs(); setStep(2); }}
           />
         )}
 
@@ -744,6 +748,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
             mayInvoice={mayInvoice}
             canCreate={canCreate}
             printerEmail={settings.printer_email || ""}
+            onNewDelivery={(wo) => { setTemplateWO(wo); setStep(1); }}
           />
         )}
 
@@ -830,14 +835,21 @@ function StepRibbon({ step, setStep, openCount, hasEditing, canCreate, isAdmin }
 }
 
 // ─── STEP 1: CREATE WORK ORDER ───────────────────────────────────────────────
-function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAuto }) {
+function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAuto, template }) {
   const newLine = () => ({ item: "", desc: "", qty: "", rate: 0 });
+  // template = an existing work order to start a NEW one from (e.g. the next
+  // delivery against a blanket PO): same customer, PO#, lines & prices; fresh
+  // date, quantities cleared so this delivery's amounts get entered.
+  const seed = editing || template || null;
   const [date, setDate] = useState(editing?.date || today());
-  const [customer, setCustomer] = useState(editing?.customer || "");
-  const [technician, setTechnician] = useState(editing?.technician || "");
-  const [lines, setLines] = useState(editing?.lines?.length ? editing.lines.map(l=>({...l})) : [newLine(), newLine()]);
-  const [notes, setNotes] = useState(editing?.notes || "");
-  const [poNumber, setPoNumber] = useState(editing?.po_number || "");
+  const [customer, setCustomer] = useState(seed?.customer || "");
+  const [technician, setTechnician] = useState(seed?.technician || "");
+  const [lines, setLines] = useState(
+    editing?.lines?.length ? editing.lines.map(l=>({...l}))
+    : (template?.lines?.length ? template.lines.filter(l=>!l.auto).map(l=>({...l, qty:""})) : [newLine(), newLine()])
+  );
+  const [notes, setNotes] = useState(seed?.notes || "");
+  const [poNumber, setPoNumber] = useState(seed?.po_number || "");
   const [docBusy, setDocBusy] = useState(false);
   const [docReview, setDocReview] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -863,8 +875,8 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
       ]);
       setCustomers(cu.data || []);
       setPriceLevels(pl.data || []);
-      if (editing && editing.customer) {
-        const ec = (cu.data||[]).find(x => (x.display_name||"").toLowerCase() === editing.customer.trim().toLowerCase());
+      if (seed && seed.customer) {
+        const ec = (cu.data||[]).find(x => (x.display_name||"").toLowerCase() === seed.customer.trim().toLowerCase());
         if (ec) { setCustomerId(ec.id); const et=(pl.data||[]).find(p=>p.id===ec.primary_price_level_id); setTierName(et?et.name:""); }
       }
       const cat = [];
@@ -980,18 +992,20 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
     setTierName(cust && cust.primary_price_level_id ? ((priceLevels.find(x=>x.id===cust.primary_price_level_id)||{}).name||"") : "");
     if (r.p.doc_date) setDate(r.p.doc_date);
     setPoNumber((r.poPick || "N/A").trim() || "N/A");
+    const usable = r.lines.filter(l => !r.p.is_blanket || Number(l.qty) > 0);
+    if (r.p.is_blanket && usable.length === 0) { setErr("This is a blanket order — enter the quantity for this delivery on at least one line before filling the work order."); return; }
     const built = [];
-    for (const l of r.lines) {
+    for (const l of usable) {
       const it = l.match;
       let rate = l.unit_price;
       if (l.usePrice === "ours" && it) rate = await resolveRate(cid, it.source, it.id, it.base);
       const itemName = it ? it.name : (l.item || l.description);
       const descText = it ? l.description : (l.item ? l.description : "");
-      built.push({ item: itemName, desc: descText, qty: l.qty, rate: Number(rate)||0, item_source: it ? it.source : null, item_id: it ? it.id : null, base_rate: it ? it.base : undefined });
+      built.push({ item: itemName, desc: descText, qty: Number(l.qty) > 0 ? Number(l.qty) : 1, rate: Number(rate)||0, item_source: it ? it.source : null, item_id: it ? it.id : null, base_rate: it ? it.base : undefined });
     }
     if (built.length) setLines(built);
     const label = r.p.doc_type==="po" ? "PO" : r.p.doc_type==="estimate" ? "estimate" : "document";
-    const src = `From ${label}${r.p.po_number ? " #"+r.p.po_number : ""} (${r.fileName})`;
+    const src = `From ${label}${r.p.po_number ? " #"+r.p.po_number : ""} (${r.fileName})${r.p.is_blanket ? " · blanket order" + (r.p.blanket_note ? ": " + r.p.blanket_note : "") : ""}`;
     setNotes(n => [n, r.p.notes, src].filter(Boolean).join("\n"));
     setDocReview(null);
   };
@@ -1100,6 +1114,12 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
         )}
       </div>
 
+      {template && !docReview && (
+        <div style={{background:"#eef4ff",border:"1px solid #cfe0f5",borderLeft:"4px solid #2563eb",borderRadius:6,padding:"8px 12px",marginBottom:10,fontSize:13}}>
+          🔁 <b>New delivery</b> for <b>{template.customer}</b>{template.po_number && template.po_number!=="N/A" ? <> · PO <b>{template.po_number}</b></> : null} — same lines and prices as WO #{template.id}. <b>Enter this delivery's quantities</b>, then save.
+        </div>
+      )}
+
       {docReview && (
         <div style={{border:"2px solid #2563eb",borderRadius:10,padding:14,marginBottom:14,background:"#f7faff"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
@@ -1113,6 +1133,12 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
             </div>
           </div>
           {docReview.p.warnings.length>0 && <div className="ic-issue warn" style={{marginTop:8}}>⚠ {docReview.p.warnings.join(" · ")}</div>}
+          {docReview.p.is_blanket && (
+            <div style={{marginTop:8,background:"#eef4ff",border:"1px solid #cfe0f5",borderLeft:"4px solid #2563eb",borderRadius:6,padding:"8px 12px",fontSize:13}}>
+              📦 <b>Blanket order</b>{docReview.p.blanket_total ? <> — <b>{docReview.p.blanket_unit==="USD" ? fmt$(docReview.p.blanket_total) : `${Number(docReview.p.blanket_total).toLocaleString()} ${docReview.p.blanket_unit}`}</b> total</> : null}{docReview.p.blanket_note ? ` · ${docReview.p.blanket_note}` : ""}.
+              <div style={{marginTop:4}}><b>Enter the quantity for THIS delivery</b> on each line below. Each delivery becomes its own work order and invoice, all carrying PO <b>{docReview.poPick}</b>. For the next delivery, tap <b>New delivery</b> on the saved work order — no need to upload the PO again.</div>
+            </div>
+          )}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginTop:10,fontSize:13}}>
             <div>
               <div className="label">Customer</div>
@@ -1153,8 +1179,16 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
                       </select>
                       {l.match && <div style={{fontSize:11,color:l.score>=0.99?"var(--inv)":"var(--brass)"}}>{l.score>=0.99?"✓ exact":"≈ suggested — confirm"}</div>}
                     </td>
-                    <td>{l.qty}</td>
-                    <td>{fmt$(l.unit_price)}</td>
+                    <td>
+                      <input className="input" type="number" step="any" min="0" style={{width:84,fontSize:12,padding:"4px 6px"}}
+                        value={l.qty===0 ? "" : l.qty} placeholder={docReview.p.is_blanket ? "this delivery" : ""}
+                        onChange={e=>{ const v=e.target.value; setDocReview(r=>({...r,lines:r.lines.map((x,idx)=>idx===i?{...x,qty:v===""?0:Number(v)}:x)})); }}/>
+                      {l.unit ? <span style={{fontSize:11,color:"var(--muted)"}}> {l.unit}</span> : null}
+                    </td>
+                    <td>
+                      <input className="input" type="number" step="0.01" min="0" style={{width:92,fontSize:12,padding:"4px 6px"}}
+                        value={l.unit_price} onChange={e=>{ const v=Number(e.target.value); setDocReview(r=>({...r,lines:r.lines.map((x,idx)=>idx===i?{...x,unit_price:isNaN(v)?0:v}:x)})); }}/>
+                    </td>
                     <td>{l.match ? fmt$(l.match.base) : <span style={{color:"var(--muted)"}}>—</span>}</td>
                     <td>
                       <select className="input" style={{fontSize:12,padding:"4px 6px"}} value={l.usePrice} disabled={!l.match} onChange={e=>{ const v=e.target.value; setDocReview(r=>({...r,lines:r.lines.map((x,idx)=>idx===i?{...x,usePrice:v}:x)})); }}>
@@ -1330,7 +1364,8 @@ function buildWoPdf(wo, hideRates){
 }
 
 // ─── STEP 2: OPEN WO LIST ────────────────────────────────────────────────────
-function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate, printerEmail }) {
+function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate, printerEmail, onNewDelivery }) {
+  const newDeliveryLabel = (wo) => (wo.po_number && wo.po_number !== "N/A") ? "🔁 New delivery" : "⧉ Duplicate";
   const open = workOrders.filter(w => w.status === "open");
   const recent = workOrders.filter(w => w.status === "invoiced").slice(0, 5);
 
@@ -1481,6 +1516,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
               <div className="wo-actions">
                 {canCreate && <button className="btn btn-outline btn-sm" onClick={()=>onEditOpen(wo)}>✎ Edit</button>}
                 <button className="btn btn-outline btn-sm" onClick={()=>doPrint(wo)}>🖨 Print</button>
+                {canCreate && onNewDelivery && <button className="btn btn-outline btn-sm" onClick={()=>onNewDelivery(wo)} title="Start a new work order with the same customer, PO number, lines and prices">{newDeliveryLabel(wo)}</button>}
                 {mayInvoice && (
                 <button className="btn btn-outline btn-sm" onClick={()=>onPickInvoice(wo)}>
                   <span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:"var(--red)"}}/>
@@ -1514,6 +1550,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
               </div>
               <div className="wo-actions">
                 {mayInvoice && <button className="btn btn-outline btn-sm" onClick={()=>onEditInvoiced(wo)}>✎ Edit</button>}
+                {canCreate && onNewDelivery && <button className="btn btn-outline btn-sm" onClick={()=>onNewDelivery(wo)} title="Start a new work order with the same customer, PO number, lines and prices">{newDeliveryLabel(wo)}</button>}
               </div>
             </div>
           ))}
