@@ -158,6 +158,8 @@ body {
 .step-card.s6.active { color: #6d3fc4; }
 .step-card.s7 { border-left: 6px solid #d97706; background: linear-gradient(to right, #fdf0dc 0%, #fff 30%); }
 .step-card.s7.active { color: #d97706; }
+.step-card.s8 { border-left: 6px solid #0f766e; background: linear-gradient(to right, #e6f4f2 0%, #fff 30%); }
+.step-card.s8.active { color: #0f766e; }
 /* ── Import Center stepper ── */
 .ic-steps { display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
 .ic-step { flex:1; min-width:104px; border-radius:8px; padding:10px 12px; font-size:12px; font-weight:700; color:#fff; opacity:.42; display:flex; align-items:center; gap:8px; }
@@ -194,7 +196,7 @@ body {
 .dash-row:last-child { border-bottom:none; }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
-/*  WORKSHEET (QBO-style)                                                      */
+/*  WORKSHEET (QuickBooks-style)                                                      */
 /* ═══════════════════════════════════════════════════════════════════════════ */
 .sheet { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
 .sheet-h { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 14px; margin-bottom: 16px; border-bottom: 2px solid var(--line); }
@@ -206,7 +208,7 @@ body {
 .hdr-grid .fg { margin: 0; }
 @media (max-width: 700px) { .hdr-grid { grid-template-columns: 1fr; } }
 
-/* QBO line-item grid */
+/* QuickBooks line-item grid */
 .linegrid { width: 100%; border-collapse: collapse; }
 .linegrid thead th {
   background: #fafaf6;
@@ -361,7 +363,7 @@ const SUPABASE_KEY = "sb_publishable_-771YtOZINM04l_x9YFd5g_J1dHL3TF";
 const PLANS = [
   { id:"basic", name:"Basic", price:10, features:["Multi-user work orders","QuickBooks Online sync","Auto-email work orders","Custom service catalog"] },
   { id:"gps",   name:"+ GPS", price:19, features:["Everything in Basic","GPS truck tracking","Geofence auto-WO","Per-truck location history"] },
-  { id:"pro",   name:"Service Pro", price:29, featured:true, features:["Everything in GPS","Price Levels for QBO included","Customer-tier pricing","Best value"] },
+  { id:"pro",   name:"Service Pro", price:29, featured:true, features:["Everything in GPS","Automations: weekly fuel surcharge that tracks diesel prices","Price Levels for QuickBooks included","Customer-tier pricing"] },
 ];
 
 // Employees allowed per subscription plan (active members + pending invites)
@@ -381,6 +383,18 @@ const SELLABLE_PLANS = PLANS.filter(p => STRIPE_LINKS[p.id]);
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const fmt$ = n => "$" + (Number(n)||0).toFixed(2);
+// supabase.functions.invoke hides the function's message behind "non-2xx status code";
+// the real message is in error.context (a Response). Dig it out.
+async function fnErrMsg(error) {
+  let msg = (error && error.message) || "Request failed";
+  try {
+    if (error && error.context && typeof error.context.json === "function") {
+      const b = await error.context.json();
+      if (b && b.error) msg = b.error;
+    }
+  } catch (_e) {}
+  return msg;
+}
 const today = () => new Date().toISOString().split("T")[0];
 
 // ─── ROOT ────────────────────────────────────────────────────────────────────
@@ -627,9 +641,26 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
     const { data } = await supabase.from("tenant_settings").select("*").eq("tenant_id", tenant.id).maybeSingle();
     if (data) setSettings(data);
   };
+  // Pro automation: fuel surcharge rule. If it's on and more than 6 days old,
+  // refresh from this week's diesel price (the weekly schedule also does this).
+  const [fuelAuto, setFuelAuto] = useState(null);
+  const loadAutomation = async () => {
+    const { data } = await supabase.from("automations").select("*").eq("tenant_id", tenant.id).eq("kind", "fuel_surcharge").maybeSingle();
+    setFuelAuto(data || null);
+    if (data && data.enabled) {
+      const stale = !data.last_updated || (Date.now() - new Date(data.last_updated).getTime()) > 6 * 24 * 3600 * 1000;
+      if (stale) {
+        try {
+          await supabase.functions.invoke("fuel-surcharge-update", { body: { tenant_id: tenant.id, refresh: true } });
+          const r = await supabase.from("automations").select("*").eq("tenant_id", tenant.id).eq("kind", "fuel_surcharge").maybeSingle();
+          if (r.data) setFuelAuto(r.data);
+        } catch (_e) { /* keep last known rate */ }
+      }
+    }
+  };
 
   useEffect(() => {
-    Promise.all([loadWOs(), loadQbo(), loadSettings()]).then(() => setLoading(false));
+    Promise.all([loadWOs(), loadQbo(), loadSettings(), loadAutomation()]).then(() => setLoading(false));
   }, [tenant.id]);
 
   // Hide rates from techs if setting is on and user is a tech (not owner/admin)
@@ -640,7 +671,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
   const mayInvoice = !isViewer && (isAdmin || canInvoice);  // WO+invoice or admin
   useEffect(() => {
     if (isViewer && ![2,3,6].includes(step)) setStep(2);
-    else if (!isAdmin && (step === 4 || step === 7)) setStep(2);
+    else if (!isAdmin && (step === 4 || step === 7 || step === 8)) setStep(2);
     else if (!canCreate && (step === 1 || step === 5)) setStep(2);
   }, [step, isViewer, isAdmin, canCreate]);
 
@@ -694,7 +725,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
 
         {step === 1 && canCreate && (
           <CreateWO
-            tenant={tenant} user={user} hideRates={hideRates}
+            tenant={tenant} user={user} hideRates={hideRates} fuelAuto={fuelAuto}
             onSaved={() => { loadWOs(); setStep(2); }}
           />
         )}
@@ -729,10 +760,11 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
         {step === 4 && isAdmin && <PriceBook tenant={tenant} />}
         {step === 6 && <Dashboard workOrders={workOrders} tenant={tenant} onOpenJobs={()=>setStep(2)} />}
         {step === 7 && isAdmin && <ImportCenter tenant={tenant} onDone={()=>setStep(4)} />}
+        {step === 8 && isAdmin && <Automations tenant={tenant} fuelAuto={fuelAuto} onChange={loadAutomation} />}
 
         {step === 5 && canCreate && (
           <CreateWO
-            tenant={tenant} user={user} hideRates={hideRates}
+            tenant={tenant} user={user} hideRates={hideRates} fuelAuto={fuelAuto}
             editing={editingWO}
             onUpdated={(data) => { loadWOs(); setEditingWO(null); setStep(2); if (data && data.invoiceUrl) { try { window.open(data.invoiceUrl, "_blank"); } catch(e){} } }}
             onSaved={() => { loadWOs(); setStep(2); }}
@@ -769,7 +801,7 @@ function StepRibbon({ step, setStep, openCount, hasEditing, canCreate, isAdmin }
         onClick={()=>{ if(hasEditing) setStep(3); }}
         style={{opacity: hasEditing ? 1 : 0.5, cursor: hasEditing ? "pointer" : "default"}}>
         <div className="step-num">Step 3</div>
-        <div className="step-title">Create Invoice → QBO</div>
+        <div className="step-title">Create Invoice → QuickBooks</div>
         <div className="step-meta">Push to QuickBooks</div>
       </div>
       {isAdmin && (
@@ -786,12 +818,19 @@ function StepRibbon({ step, setStep, openCount, hasEditing, canCreate, isAdmin }
         <div className="step-meta">Products · price levels · customers</div>
       </div>
       )}
+      {isAdmin && (
+      <div className={`step-card s8 ${step===8?"active":""}`} onClick={()=>setStep(8)}>
+        <div className="step-num">Pro</div>
+        <div className="step-title">Automations</div>
+        <div className="step-meta">Fuel surcharge · updates weekly</div>
+      </div>
+      )}
     </div>
   );
 }
 
 // ─── STEP 1: CREATE WORK ORDER ───────────────────────────────────────────────
-function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
+function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAuto }) {
   const newLine = () => ({ item: "", desc: "", qty: "", rate: 0 });
   const [date, setDate] = useState(editing?.date || today());
   const [customer, setCustomer] = useState(editing?.customer || "");
@@ -903,12 +942,27 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
     const f = e.target.files && e.target.files[0]; if (!f) return; e.target.value = "";
     setErr(""); setDocBusy(true); setDocReview(null);
     try {
-      const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = () => rej(new Error("Could not read file")); r.readAsDataURL(f); });
+      const readB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = () => rej(new Error("Could not read file")); r.readAsDataURL(blob); });
+      // Phone photos are huge; shrink to ~1800px JPEG so they read fast and stay under the AI's size limit.
+      const shrink = (file) => new Promise((res, rej) => {
+        const url = URL.createObjectURL(file); const img = new Image();
+        img.onload = () => {
+          const MAX = 1800; const sc = Math.min(1, MAX / Math.max(img.width, img.height));
+          const w = Math.round(img.width*sc), h = Math.round(img.height*sc);
+          const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url); c.toBlob(b => b ? res(b) : rej(new Error("Could not process that image")), "image/jpeg", 0.85);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("Could not read that image — try a PDF, or a JPG/PNG photo.")); };
+        img.src = url;
+      });
       let mt = f.type || ""; if (!mt && /\.pdf$/i.test(f.name)) mt = "application/pdf";
       if (/heic|heif/i.test(mt) || /\.hei[cf]$/i.test(f.name)) throw new Error("HEIC photos aren't supported yet — use the PDF, or take a screenshot of the document instead.");
       if (!mt) throw new Error("Unknown file type — use a PDF or a JPG/PNG photo.");
+      let b64;
+      if (mt === "application/pdf") b64 = await readB64(f);
+      else { b64 = await readB64(await shrink(f)); mt = "image/jpeg"; }
       const { data, error } = await supabase.functions.invoke("parse-document", { body: { file_base64: b64, media_type: mt, filename: f.name, tenant_id: tenant.id } });
-      if (error) throw new Error(error.message);
+      if (error) throw new Error(await fnErrMsg(error));
       if (!data || !data.success) throw new Error((data && data.error) || "Could not read the document");
       const pd = data.parsed;
       const cm = bestCustomer(pd.customer_name);
@@ -940,6 +994,36 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
     const src = `From ${label}${r.p.po_number ? " #"+r.p.po_number : ""} (${r.fileName})`;
     setNotes(n => [n, r.p.notes, src].filter(Boolean).join("\n"));
     setDocReview(null);
+  };
+
+  // ── Pro automation: fuel surcharge that adds itself to NEW work orders ──
+  const qtyNum = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
+  const surchargeApplies = () => {
+    const a = fuelAuto; if (!a || !a.enabled || editing) return false;
+    if (!(Number(a.current_rate) > 0)) return false;
+    if (a.all_customers) return true;
+    return !!customerId && (a.customer_ids||[]).map(String).includes(String(customerId));
+  };
+  const surchargeFor = (ls) => {
+    const a = fuelAuto;
+    const real = ls.filter(l => !l.auto && (l.item||"").trim());
+    const sub = real.reduce((t,l)=> t + qtyNum(l)*(Number(l.rate)||0), 0);
+    const units = real.reduce((t,l)=> t + qtyNum(l), 0);
+    if (a.apply_mode === "per_unit") return { qty: units, rate: Number(a.current_rate) };
+    if (a.apply_mode === "percent") return { qty: 1, rate: Math.round(sub * Number(a.current_rate)) / 100 };
+    return { qty: 1, rate: Number(a.current_rate) };
+  };
+  const withSurcharge = (ls) => {
+    if (!surchargeApplies()) return ls;
+    const nm = (fuelAuto.name||"").trim().toLowerCase();
+    if (ls.some(l => l.auto === "fuel_surcharge" || (l.item||"").trim().toLowerCase() === nm)) return ls;
+    const { qty, rate } = surchargeFor(ls);
+    if (!(qty > 0) || !(rate > 0)) return ls;
+    return [...ls, {
+      item: fuelAuto.name,
+      desc: `Fuel surcharge — diesel ${fmt$(fuelAuto.current_diesel||0)}${fuelAuto.diesel_period ? " (wk of "+fuelAuto.diesel_period+")" : ""}`,
+      qty, rate, item_source: null, item_id: null, base_rate: rate, auto: "fuel_surcharge",
+    }];
   };
 
   const qtyOf = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
@@ -987,7 +1071,7 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
         customer: customer.trim(),
         customer_id: customerId,
         technician: technician.trim(),
-        lines: newLines,
+        lines: withSurcharge(newLines),
         status: "open",
         notes,
         po_number: poNumber.trim() || null,
@@ -1125,6 +1209,13 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated }) {
           </div>
         </div>
       </div>
+
+      {surchargeApplies() && (() => { const sc = surchargeFor(lines); const amt = sc.qty * sc.rate; return amt > 0 ? (
+        <div style={{background:"#fdf6ea",border:"1px solid #ead6b4",borderLeft:"4px solid var(--brass)",borderRadius:6,padding:"8px 12px",marginBottom:10,fontSize:13}}>
+          ⛽ <b>{fuelAuto.name}</b> will be added automatically when you save: <b>{fmt$(amt)}</b>
+          {fuelAuto.apply_mode==="per_unit" ? ` (${sc.qty} units × ${fmt$(sc.rate)})` : fuelAuto.apply_mode==="percent" ? ` (${fuelAuto.current_rate}% of subtotal)` : ""}
+          <span style={{color:"var(--muted)"}}> · diesel {fmt$(fuelAuto.current_diesel||0)}{fuelAuto.diesel_period ? ` wk of ${fuelAuto.diesel_period}` : ""}</span>
+        </div>) : null; })()}
 
       <table className="linegrid">
         <thead>
@@ -1264,7 +1355,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchResult, setBatchResult] = useState(null);
   // Work orders invoiced during this session — kept out of re-selection even
-  // before the list reloads, so a work order can never be pushed to QBO twice.
+  // before the list reloads, so a work order can never be pushed to QuickBooks twice.
   const [invoicedNow, setInvoicedNow] = useState({});
   const selectable = open.filter(w => !w.invoice_qbo_id && !invoicedNow[w.id]);
   const selectedIds = selectable.filter(w => selected[w.id]).map(w => w.id);
@@ -1290,7 +1381,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
           body: JSON.stringify({ wo, tenant_id: wo.tenant_id }),
         });
         const data = await res.json();
-        if (!data.success) throw new Error(data.error || "QBO push failed");
+        if (!data.success) throw new Error(data.error || "QuickBooks push failed");
         // QuickBooks has the invoice now — lock this WO immediately so it can't be re-pushed.
         setInvoicedNow(s => ({ ...s, [wo.id]: true }));
         // Mark it invoiced locally; retry a couple of times if the write blips.
@@ -1359,7 +1450,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
               disabled={selectedIds.length===0 || batchRunning || !qboConnected}
               onClick={runBatch}
               title={!qboConnected ? "Connect QuickBooks in Settings first" : ""}>
-              {batchRunning ? "Creating…" : `Create ${selectedIds.length ? selectedIds.length+" " : ""}Invoice${selectedIds.length===1?"":"s"} → QBO`}
+              {batchRunning ? "Creating…" : `Create ${selectedIds.length ? selectedIds.length+" " : ""}Invoice${selectedIds.length===1?"":"s"} → QuickBooks`}
             </button>
           </div>
         )}
@@ -1461,7 +1552,7 @@ function InvoicePush({ wo, qboConnected, user, onDone, onBack, mayInvoice }) {
         body: JSON.stringify({ wo, tenant_id: wo.tenant_id }),
       });
       const data = await res.json();
-      if (!data.success) throw new Error(data.error || "QBO push failed");
+      if (!data.success) throw new Error(data.error || "QuickBooks push failed");
 
       const { error: uErr } = await supabase.from("work_orders").update({
         status: "invoiced",
@@ -1557,7 +1648,7 @@ function InvoicePush({ wo, qboConnected, user, onDone, onBack, mayInvoice }) {
           </div>
         )}
         <p style={{fontSize:13,color:"var(--muted)",marginBottom:16}}>
-          This creates a <strong>draft invoice</strong> in QuickBooks. Customer is not emailed until you click Send in QBO.
+          This creates a <strong>draft invoice</strong> in QuickBooks. The customer is not emailed until you click Send in QuickBooks Online.
         </p>
         <button className="btn-qbo-push" onClick={pushToQbo} disabled={pushing || !qboConnected || !mayInvoice}>
           <span className="red-dot"/>
@@ -2110,6 +2201,152 @@ function ImportCenter({ tenant, onDone }) {
   );
 }
 
+
+// ─── AUTOMATIONS (Pro) ────────────────────────────────────────────────────────
+function Automations({ tenant, fuelAuto, onChange }) {
+  const isPro = tenant.plan === "pro";
+  const blank = { enabled:false, name:"Fuel Surcharge", apply_mode:"per_wo", base_diesel:3.50, base_rate:0.25, step_price:0.10, step_rate:0.05, all_customers:true, customer_ids:[] };
+  const [form, setForm] = useState(fuelAuto ? {...blank, ...fuelAuto} : blank);
+  const [customers, setCustomers] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [manual, setManual] = useState("");
+  const [msg, setMsg] = useState("");
+  const autoId = fuelAuto && fuelAuto.id;
+  const autoUpd = fuelAuto && fuelAuto.last_updated;
+  useEffect(() => { setForm(fuelAuto ? {...blank, ...fuelAuto} : blank); }, [autoId, autoUpd]);
+  useEffect(() => { supabase.from("customers").select("id,display_name").eq("tenant_id",tenant.id).eq("active",true).order("display_name").then(({data})=>setCustomers(data||[])); }, [tenant.id]);
+  useEffect(() => {
+    if (autoId) supabase.from("automation_history").select("*").eq("automation_id",autoId).order("created_at",{ascending:false}).limit(12).then(({data})=>setHistory(data||[]));
+    else setHistory([]);
+  }, [autoId, autoUpd]);
+
+  const rateAt = (diesel) => { const base=Number(form.base_diesel)||0, step=Number(form.step_price)||0; const steps = step>0 ? Math.trunc((diesel-base)/step) : 0; return Math.max(0, Math.round(((Number(form.base_rate)||0) + steps*(Number(form.step_rate)||0))*100)/100); };
+  const unit = form.apply_mode==="percent" ? "" : form.apply_mode==="per_unit" ? " per unit" : " per work order";
+  const fmtRate = (r) => form.apply_mode==="percent" ? `${Number(r||0).toFixed(2)}%` : fmt$(r||0);
+  const curDiesel = fuelAuto && fuelAuto.current_diesel ? Number(fuelAuto.current_diesel) : null;
+
+  const save = async () => {
+    setSaving(true); setMsg("");
+    const payload = { tenant_id: tenant.id, kind:"fuel_surcharge", enabled: !!form.enabled, name: (form.name||"").trim()||"Fuel Surcharge", apply_mode: form.apply_mode,
+      base_diesel: Number(form.base_diesel)||0, base_rate: Number(form.base_rate)||0, step_price: Number(form.step_price)||0.1, step_rate: Number(form.step_rate)||0,
+      all_customers: !!form.all_customers, customer_ids: form.customer_ids||[] };
+    if (curDiesel) payload.current_rate = rateAt(curDiesel);
+    const { error } = await supabase.from("automations").upsert(payload, { onConflict: "tenant_id,kind" });
+    if (error) setMsg("Could not save: " + error.message); else { setMsg("✓ Rule saved"); onChange && onChange(); }
+    setSaving(false);
+  };
+  const refresh = async () => {
+    setBusy(true); setMsg("");
+    const { data, error } = await supabase.functions.invoke("fuel-surcharge-update", { body: { tenant_id: tenant.id, refresh: true } });
+    if (error || !data || !data.success) setMsg("Couldn't fetch this week's diesel price: " + ((data && data.error) || (error ? await fnErrMsg(error) : "unknown")) + " — you can type it in below.");
+    else { setMsg(`✓ Diesel ${fmt$(data.diesel)} (week of ${data.period}) applied`); onChange && onChange(); }
+    setBusy(false);
+  };
+  const applyManual = async () => {
+    const d = parseFloat(manual); if (!(d > 0)) { setMsg("Enter a diesel price like 3.79"); return; }
+    setBusy(true); setMsg("");
+    const { data, error } = await supabase.functions.invoke("fuel-surcharge-update", { body: { tenant_id: tenant.id, manual_diesel: d } });
+    if (error || !data || !data.success) setMsg("Couldn't apply: " + ((data && data.error) || (error ? await fnErrMsg(error) : "unknown")));
+    else { setMsg(`✓ Using diesel ${fmt$(d)} — surcharge is now ${fmtRate(data.rate)}`); setManual(""); onChange && onChange(); }
+    setBusy(false);
+  };
+  const toggleCust = (id) => setForm(f => { const cur=(f.customer_ids||[]).map(String); return {...f, customer_ids: cur.includes(String(id)) ? cur.filter(x=>x!==String(id)) : [...cur, String(id)]}; });
+
+  if (!isPro) return (
+    <div className="sheet">
+      <div className="sheet-h"><div><div className="sheet-title">Automations</div><div className="sheet-meta">Rules that keep your prices current on their own</div></div></div>
+      <div className="dash-section" style={{textAlign:"center",padding:"28px 20px"}}>
+        <div style={{fontSize:34}}>⛽</div>
+        <div style={{fontSize:18,fontWeight:800,margin:"8px 0 6px"}}>Fuel surcharges that update themselves</div>
+        <div style={{fontSize:14,color:"var(--muted)",maxWidth:480,margin:"0 auto 14px",lineHeight:1.5}}>Set a rule once. Every week the app pulls the published U.S. diesel price, recalculates your surcharge, and adds it to new work orders automatically — with a full history for when a customer asks why it changed.</div>
+        <div style={{fontSize:13}}>Included with the <b>Pro</b> plan · upgrade in <b>Settings → Subscription</b></div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="sheet">
+      <div className="sheet-h">
+        <div><div className="sheet-title">Automations</div><div className="sheet-meta">Pro · fuel surcharge that tracks the weekly U.S. diesel price</div></div>
+        <label style={{display:"flex",alignItems:"center",gap:8,fontSize:14,fontWeight:700,cursor:"pointer"}}>
+          <input type="checkbox" checked={!!form.enabled} onChange={e=>setForm(f=>({...f,enabled:e.target.checked}))}/> {form.enabled ? "On" : "Off"}
+        </label>
+      </div>
+      {msg && <div className={`ic-issue ${msg.startsWith("✓")?"ok":"warn"}`}>{msg}</div>}
+
+      <div className="dash-grid">
+        <div className="dash-card dash-a"><div className="lbl">Diesel this week</div><div className="val">{curDiesel ? fmt$(curDiesel) : "—"}</div><div className="sub">{fuelAuto && fuelAuto.diesel_period ? `week of ${fuelAuto.diesel_period}${fuelAuto.manual_diesel ? " · entered manually" : " · U.S. EIA"}` : "not fetched yet"}</div></div>
+        <div className="dash-card dash-d"><div className="lbl">Current surcharge</div><div className="val">{fuelAuto ? fmtRate(fuelAuto.current_rate) : "—"}</div><div className="sub">{unit.trim() || "of subtotal"}</div></div>
+        <div className="dash-card dash-b"><div className="lbl">Auto-update</div><div className="val" style={{fontSize:18}}>Every Tuesday</div><div className="sub">{fuelAuto && fuelAuto.last_updated ? "last: " + new Date(fuelAuto.last_updated).toLocaleDateString() : "runs on its own"}</div></div>
+      </div>
+
+      <div className="dash-section">
+        <h3>The rule</h3>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:10}}>
+          <div className="fg"><label className="label">Line name (as it appears on the work order)</label><input className="input" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></div>
+          <div className="fg"><label className="label">Applies as</label>
+            <select className="input" value={form.apply_mode} onChange={e=>setForm(f=>({...f,apply_mode:e.target.value}))}>
+              <option value="per_wo">Flat amount per work order</option>
+              <option value="per_unit">Amount × total units (boxes, miles, deliveries)</option>
+              <option value="percent">Percent of subtotal</option>
+            </select></div>
+          <div className="fg"><label className="label">Baseline diesel ($/gal)</label><input className="input" type="number" step="0.01" value={form.base_diesel} onChange={e=>setForm(f=>({...f,base_diesel:e.target.value}))}/></div>
+          <div className="fg"><label className="label">Surcharge at baseline ({form.apply_mode==="percent" ? "%" : "$"})</label><input className="input" type="number" step="0.01" value={form.base_rate} onChange={e=>setForm(f=>({...f,base_rate:e.target.value}))}/></div>
+          <div className="fg"><label className="label">For every this much above baseline ($/gal)</label><input className="input" type="number" step="0.01" value={form.step_price} onChange={e=>setForm(f=>({...f,step_price:e.target.value}))}/></div>
+          <div className="fg"><label className="label">…add ({form.apply_mode==="percent" ? "%" : "$"})</label><input className="input" type="number" step="0.01" value={form.step_rate} onChange={e=>setForm(f=>({...f,step_rate:e.target.value}))}/></div>
+        </div>
+        <div className="ic-issue ok" style={{marginTop:10}}>
+          <b>In plain English:</b> when diesel is <b>{fmt$(Number(form.base_diesel)||0)}</b>, the surcharge is <b>{fmtRate(Number(form.base_rate)||0)}</b>{unit}. Every <b>{fmt$(Number(form.step_price)||0)}</b> diesel rises above that adds <b>{fmtRate(Number(form.step_rate)||0)}</b>; it drops the same way, never below zero.
+          {curDiesel ? <> At this week's <b>{fmt$(curDiesel)}</b> that comes to <b>{fmtRate(rateAt(curDiesel))}</b>{unit}.</> : null}
+        </div>
+      </div>
+
+      <div className="dash-section">
+        <h3>Which customers</h3>
+        <label style={{fontSize:13,display:"flex",gap:8,alignItems:"center",marginBottom:6,cursor:"pointer"}}><input type="radio" checked={!!form.all_customers} onChange={()=>setForm(f=>({...f,all_customers:true}))}/> All customers</label>
+        <label style={{fontSize:13,display:"flex",gap:8,alignItems:"center",cursor:"pointer"}}><input type="radio" checked={!form.all_customers} onChange={()=>setForm(f=>({...f,all_customers:false}))}/> Only these customers</label>
+        {!form.all_customers && (
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8,maxHeight:180,overflowY:"auto"}}>
+            {customers.map(c => { const on=(form.customer_ids||[]).map(String).includes(String(c.id)); return (
+              <label key={c.id} style={{fontSize:12,border:"1px solid var(--line)",borderRadius:6,padding:"4px 8px",background:on?"#eef4ff":"#fff",cursor:"pointer",display:"flex",gap:6,alignItems:"center"}}>
+                <input type="checkbox" checked={on} onChange={()=>toggleCust(c.id)}/> {c.display_name}
+              </label>);})}
+            {customers.length===0 && <span style={{fontSize:12,color:"var(--muted)"}}>No customers yet.</span>}
+          </div>
+        )}
+      </div>
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:14}}>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save rule"}</button>
+        <button className="btn btn-outline" onClick={refresh} disabled={busy||!fuelAuto} title={!fuelAuto ? "Save the rule first" : ""}>{busy ? "Working…" : "↻ Fetch this week's diesel price"}</button>
+      </div>
+
+      <div className="dash-section">
+        <h3>Enter the diesel price yourself (optional)</h3>
+        <div style={{fontSize:13,color:"var(--muted)",marginBottom:8}}>Use this if the automatic fetch isn't set up yet, or you'd rather use a local price. The weekly update keeps running either way.</div>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <input className="input" type="number" step="0.01" placeholder="e.g. 3.79" value={manual} onChange={e=>setManual(e.target.value)} style={{maxWidth:140}}/>
+          <button className="btn btn-outline btn-sm" onClick={applyManual} disabled={busy||!fuelAuto}>Apply price</button>
+          {!fuelAuto && <span style={{fontSize:12,color:"var(--muted)"}}>Save the rule first.</span>}
+        </div>
+      </div>
+
+      <div className="dash-section">
+        <h3>History</h3>
+        {history.length===0 && <div style={{fontSize:13,color:"var(--muted)"}}>No updates yet — save the rule, then fetch or enter a price.</div>}
+        {history.map(h => (
+          <div key={h.id} className="dash-row">
+            <span>{new Date(h.created_at).toLocaleDateString()} · diesel {h.diesel_price!=null ? fmt$(h.diesel_price) : "—"}{h.diesel_period ? ` (wk ${h.diesel_period})` : ""}{h.source==="manual" ? " · entered manually" : ""}</span>
+            <span><b>{fmtRate(h.rate)}</b></span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PriceBook({ tenant }) {
   const [tab, setTab] = useState("matrix");
   const [levels, setLevels] = useState([]);
@@ -2424,6 +2661,7 @@ function PriceBook({ tenant }) {
 
 function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQboChange, onSettingsChange }) {
   const [syncing, setSyncing] = useState(false);
+  const [c2qbImgOk, setC2qbImgOk] = useState(true); // official Intuit button image present?
   const [itemCount, setItemCount] = useState(0);
   const [custCount, setCustCount] = useState(0);
   const [syncingCust, setSyncingCust] = useState(false);
@@ -2477,7 +2715,7 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
       const w = window.open(data.url, "qbo-oauth", "width=600,height=700");
       if (!w) alert("Please allow popups to connect QuickBooks");
     } catch (e) {
-      alert(`Failed to start QBO connection: ${e.message}`);
+      alert(`Failed to start QuickBooks connection: ${e.message}`);
     }
   };
 
@@ -2491,7 +2729,7 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
       });
       const data = await res.json();
       if (data.success) {
-        alert(`✅ QuickBooks connected!\n\n📦 Auto-synced ${data.count} products from your QBO account.`);
+        alert(`✅ QuickBooks connected!\n\n📦 Auto-synced ${data.count} products from your QuickBooks Online account.`);
         loadItemCount();
       } else {
         alert(`✅ QuickBooks connected!\n\nProduct sync failed: ${data.error}\nYou can re-sync manually below.`);
@@ -2662,7 +2900,7 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
 
           <div className="settings-section">
             <div className="settings-h">QuickBooks Online</div>
-            <div className="settings-sub">Connect your QBO company to create invoices from work orders. Products auto-sync on first connect.</div>
+            <div className="settings-sub">Connect your QuickBooks Online company to create invoices from work orders. Products auto-sync on first connect.</div>
             <div className="qbo-status-card">
               <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                 <span style={{width:10,height:10,borderRadius:"50%",background:qboConnected?"var(--qb)":"#bdc3c7",boxShadow:qboConnected?"0 0 6px rgba(44,160,28,0.6)":"none"}}/>
@@ -2681,7 +2919,11 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
             </div>
             <div className="btn-row">
               {!qboConnected ? (
-                <button className="btn btn-primary btn-sm" onClick={connectQbo}>Connect QuickBooks</button>
+                c2qbImgOk
+                  ? <button onClick={connectQbo} aria-label="Connect to QuickBooks" style={{background:"none",border:"none",padding:0,cursor:"pointer",lineHeight:0}}>
+                      <img src="connect-to-quickbooks.png" alt="Connect to QuickBooks" style={{height:40}} onError={()=>setC2qbImgOk(false)}/>
+                    </button>
+                  : <button className="btn btn-primary btn-sm" onClick={connectQbo}>Connect to QuickBooks</button>
               ) : (
                 <>
                   <button className="btn btn-outline btn-sm" onClick={syncItems} disabled={syncing}>
@@ -2717,7 +2959,7 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
               ✓ Email templates & default rates<br/>
               ✓ Customer & technician lists<br/>
               {(tenant.plan === "gps" || tenant.plan === "pro") && <><br/>🚛 GPS truck tracking (v2)</>}
-              {tenant.plan === "pro" && <><br/>💰 Price Levels for QBO integration (v3)</>}
+              {tenant.plan === "pro" && <><br/>💰 Price Levels for QuickBooks integration</>}
             </div>
           </div>
 
