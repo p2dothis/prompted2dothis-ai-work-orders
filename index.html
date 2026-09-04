@@ -395,6 +395,29 @@ async function fnErrMsg(error) {
   } catch (_e) {}
   return msg;
 }
+// Blanket PO math: delivered = prior (before the app tracked it) + every work order
+// carrying this PO number (only lines matching item_name when one is set).
+function blanketStats(bp, workOrders) {
+  const norm = x => String(x||"").trim().toLowerCase();
+  const item = norm(bp.item_name);
+  const wos = (workOrders||[]).filter(w => norm(w.po_number) === norm(bp.po_number));
+  let units = Number(bp.prior_delivered_units)||0, amount = Number(bp.prior_delivered_amount)||0;
+  wos.forEach(w => (w.lines||[]).forEach(l => {
+    if (l.auto) return;
+    if (item && norm(l.item) !== item) return;
+    const q = (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
+    units += q; amount += q*(Number(l.rate)||0);
+  }));
+  const capU = Number(bp.cap_units)||0, capA = Number(bp.cap_amount)||0;
+  const remU = capU ? capU - units : null, remA = capA ? capA - amount : null;
+  const pct = capU ? units/capU : (capA ? amount/capA : 0);
+  return { units, amount, capU, capA, remU, remA, pct: Math.max(0, Math.min(1, pct)), deliveries: wos.length + (Number(bp.prior_deliveries)||0) };
+}
+function findBlanket(list, po) {
+  const n = String(po||"").trim().toLowerCase();
+  if (!n || n === "n/a") return null;
+  return (list||[]).find(b => b.active !== false && String(b.po_number||"").trim().toLowerCase() === n) || null;
+}
 const today = () => new Date().toISOString().split("T")[0];
 
 // ─── ROOT ────────────────────────────────────────────────────────────────────
@@ -645,6 +668,11 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
   };
   // Pro automation: fuel surcharge rule. If it's on and more than 6 days old,
   // refresh from this week's diesel price (the weekly schedule also does this).
+  const [blanketPOs, setBlanketPOs] = useState([]);
+  const loadBlankets = async () => {
+    const { data } = await supabase.from("blanket_pos").select("*").eq("tenant_id", tenant.id).order("created_at", { ascending: false });
+    setBlanketPOs(data || []);
+  };
   const [fuelAuto, setFuelAuto] = useState(null);
   const loadAutomation = async () => {
     const { data } = await supabase.from("automations").select("*").eq("tenant_id", tenant.id).eq("kind", "fuel_surcharge").maybeSingle();
@@ -662,7 +690,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
   };
 
   useEffect(() => {
-    Promise.all([loadWOs(), loadQbo(), loadSettings(), loadAutomation()]).then(() => setLoading(false));
+    Promise.all([loadWOs(), loadQbo(), loadSettings(), loadAutomation(), loadBlankets()]).then(() => setLoading(false));
   }, [tenant.id]);
 
   // Hide rates from techs if setting is on and user is a tech (not owner/admin)
@@ -729,6 +757,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
           <CreateWO
             key={templateWO ? "tpl-" + templateWO.id : "new"}
             tenant={tenant} user={user} hideRates={hideRates} fuelAuto={fuelAuto}
+            blanketPOs={blanketPOs} workOrders={workOrders} onBlanketsChange={loadBlankets}
             template={templateWO}
             onSaved={() => { setTemplateWO(null); loadWOs(); setStep(2); }}
           />
@@ -749,6 +778,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
             canCreate={canCreate}
             printerEmail={settings.printer_email || ""}
             onNewDelivery={(wo) => { setTemplateWO(wo); setStep(1); }}
+            blanketPOs={blanketPOs}
           />
         )}
 
@@ -763,13 +793,14 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
         )}
 
         {step === 4 && isAdmin && <PriceBook tenant={tenant} />}
-        {step === 6 && <Dashboard workOrders={workOrders} tenant={tenant} onOpenJobs={()=>setStep(2)} />}
+        {step === 6 && <Dashboard workOrders={workOrders} tenant={tenant} onOpenJobs={()=>setStep(2)} blanketPOs={blanketPOs} onBlanketsChange={loadBlankets} />}
         {step === 7 && isAdmin && <ImportCenter tenant={tenant} onDone={()=>setStep(4)} />}
         {step === 8 && isAdmin && <Automations tenant={tenant} fuelAuto={fuelAuto} onChange={loadAutomation} />}
 
         {step === 5 && canCreate && (
           <CreateWO
             tenant={tenant} user={user} hideRates={hideRates} fuelAuto={fuelAuto}
+            blanketPOs={blanketPOs} workOrders={workOrders} onBlanketsChange={loadBlankets}
             editing={editingWO}
             onUpdated={(data) => { loadWOs(); setEditingWO(null); setStep(2); if (data && data.invoiceUrl) { try { window.open(data.invoiceUrl, "_blank"); } catch(e){} } }}
             onSaved={() => { loadWOs(); setStep(2); }}
@@ -835,7 +866,7 @@ function StepRibbon({ step, setStep, openCount, hasEditing, canCreate, isAdmin }
 }
 
 // ─── STEP 1: CREATE WORK ORDER ───────────────────────────────────────────────
-function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAuto, template }) {
+function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAuto, template, blanketPOs, workOrders, onBlanketsChange }) {
   const newLine = () => ({ item: "", desc: "", qty: "", rate: 0 });
   // template = an existing work order to start a NEW one from (e.g. the next
   // delivery against a blanket PO): same customer, PO#, lines & prices; fresh
@@ -867,7 +898,7 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
   useEffect(() => {
     (async () => {
       const [cu, pl, sc, qi, cs] = await Promise.all([
-        supabase.from("customers").select("id,display_name,primary_price_level_id").eq("tenant_id", tenant.id).eq("active", true),
+        supabase.from("customers").select("id,display_name,primary_price_level_id,aliases").eq("tenant_id", tenant.id).eq("active", true),
         supabase.from("price_levels").select("id,name,rank").eq("tenant_id", tenant.id).order("rank"),
         supabase.from("service_catalog").select("id,name,sku,default_rate").eq("tenant_id", tenant.id),
         supabase.from("qbo_items").select("id,name,sku,price").eq("tenant_id", tenant.id),
@@ -939,6 +970,8 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
   const bestCustomer = (name) => {
     if (!name) return { c:null, score:0 };
     const exact = customers.find(c => normS(c.display_name)===normS(name)); if (exact) return { c: exact, score: 1 };
+    // Names this customer has appeared under on past POs/estimates (learned from your corrections)
+    const viaAlias = customers.find(c => (c.aliases||[]).some(a => normS(a)===normS(name))); if (viaAlias) return { c: viaAlias, score: 1 };
     let best=null, bs=0; customers.forEach(c => { const v=sim(c.display_name,name); if(v>bs){bs=v;best=c;} });
     const inc = customers.find(c => normS(c.display_name).includes(normS(name)) || normS(name).includes(normS(c.display_name)));
     if (inc && bs < 0.5) return { c: inc, score: 0.6 };
@@ -987,6 +1020,13 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
     const r = docReview; if (!r) return;
     const cust = r.cust;
     const name = (r.custName || r.p.customer_name || "").trim();
+    // Remember the document's spelling as an alias of the customer you chose, so next time it auto-matches.
+    if (cust && r.p.customer_name && normS(r.p.customer_name) !== normS(cust.display_name) && !(cust.aliases||[]).some(a => normS(a)===normS(r.p.customer_name))) {
+      const aliases = [...(cust.aliases||[]), r.p.customer_name.trim()];
+      supabase.from("customers").update({ aliases }).eq("id", cust.id).then(() => {
+        setCustomers(cs => cs.map(c => c.id===cust.id ? { ...c, aliases } : c));
+      });
+    }
     setCustomer(name);
     const cid = cust ? cust.id : null; setCustomerId(cid);
     setTierName(cust && cust.primary_price_level_id ? ((priceLevels.find(x=>x.id===cust.primary_price_level_id)||{}).name||"") : "");
@@ -1007,6 +1047,24 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
     const label = r.p.doc_type==="po" ? "PO" : r.p.doc_type==="estimate" ? "estimate" : "document";
     const src = `From ${label}${r.p.po_number ? " #"+r.p.po_number : ""} (${r.fileName})${r.p.is_blanket ? " · blanket order" + (r.p.blanket_note ? ": " + r.p.blanket_note : "") : ""}`;
     setNotes(n => [n, r.p.notes, src].filter(Boolean).join("\n"));
+    // First time we see this blanket PO: start tracking it (cap, unit price, item).
+    if (r.p.is_blanket && r.poPick && r.poPick !== "N/A" && !findBlanket(blanketPOs, r.poPick)) {
+      try {
+        const first = usable[0] || r.lines[0];
+        const up = first ? Number(first.unit_price)||0 : 0;
+        const total = Number(r.p.blanket_total)||0;
+        const isUsd = String(r.p.blanket_unit||"").toUpperCase() === "USD" || !r.p.blanket_unit;
+        const capA = isUsd ? total : (up ? Math.round(total*up*100)/100 : 0);
+        const capU = isUsd ? (up ? Math.round(total/up*100)/100 : 0) : total;
+        await supabase.from("blanket_pos").upsert({
+          tenant_id: tenant.id, po_number: r.poPick, customer_name: name,
+          item_name: first ? (first.match ? first.match.name : (first.item || first.description)) : "",
+          unit: (first && first.unit) ? first.unit : (isUsd ? "lb" : (r.p.blanket_unit || "lb")),
+          unit_price: up, cap_amount: capA, cap_units: capU, notes: r.p.blanket_note || "", active: true,
+        }, { onConflict: "tenant_id,po_number" });
+        onBlanketsChange && onBlanketsChange();
+      } catch (_e) { /* tracking is a convenience; never block the work order */ }
+    }
     setDocReview(null);
   };
 
@@ -1117,6 +1175,8 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
       {template && !docReview && (
         <div style={{background:"#eef4ff",border:"1px solid #cfe0f5",borderLeft:"4px solid #2563eb",borderRadius:6,padding:"8px 12px",marginBottom:10,fontSize:13}}>
           🔁 <b>New delivery</b> for <b>{template.customer}</b>{template.po_number && template.po_number!=="N/A" ? <> · PO <b>{template.po_number}</b></> : null} — same lines and prices as WO #{template.id}. <b>Enter this delivery's quantities</b>, then save.
+          {(() => { const bp = findBlanket(blanketPOs, template.po_number); if (!bp) return null; const st = blanketStats(bp, workOrders); return (
+            <div style={{marginTop:4}}>📦 Blanket balance: <b>{Math.round(st.units).toLocaleString()} {bp.unit}</b> delivered{st.remU!=null ? <> · <b style={{color: st.remU<=0 ? "var(--red)" : "var(--inv)"}}>{Math.round(st.remU).toLocaleString()} {bp.unit} left</b></> : null}{st.remA!=null ? ` · ${fmt$(st.remA)} left` : ""} · {st.deliveries} deliver{st.deliveries===1?"y":"ies"} so far</div>); })()}
         </div>
       )}
 
@@ -1137,6 +1197,8 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
             <div style={{marginTop:8,background:"#eef4ff",border:"1px solid #cfe0f5",borderLeft:"4px solid #2563eb",borderRadius:6,padding:"8px 12px",fontSize:13}}>
               📦 <b>Blanket order</b>{docReview.p.blanket_total ? <> — <b>{docReview.p.blanket_unit==="USD" ? fmt$(docReview.p.blanket_total) : `${Number(docReview.p.blanket_total).toLocaleString()} ${docReview.p.blanket_unit}`}</b> total</> : null}{docReview.p.blanket_note ? ` · ${docReview.p.blanket_note}` : ""}.
               <div style={{marginTop:4}}><b>Enter the quantity for THIS delivery</b> on each line below. Each delivery becomes its own work order and invoice, all carrying PO <b>{docReview.poPick}</b>. For the next delivery, tap <b>New delivery</b> on the saved work order — no need to upload the PO again.</div>
+              {(() => { const bp = findBlanket(blanketPOs, docReview.poPick); if (!bp) return <div style={{marginTop:4,fontSize:12,color:"var(--muted)"}}>Filling this work order will start tracking this PO's balance on the Dashboard.</div>; const st = blanketStats(bp, workOrders); return (
+                <div style={{marginTop:4}}>Balance so far: <b>{Math.round(st.units).toLocaleString()} {bp.unit}</b> delivered{st.remU!=null ? <> · <b style={{color: st.remU<=0 ? "var(--red)" : "var(--inv)"}}>{Math.round(st.remU).toLocaleString()} {bp.unit} left</b></> : null}{st.remA!=null ? ` · ${fmt$(st.remA)} left` : ""}</div>); })()}
             </div>
           )}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginTop:10,fontSize:13}}>
@@ -1243,6 +1305,16 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
           </div>
         </div>
       </div>
+
+      {!editing && (() => { const bp = findBlanket(blanketPOs, poNumber); if (!bp) return null; const st = blanketStats(bp, workOrders);
+        const nm = String(bp.item_name||"").trim().toLowerCase();
+        const thisQty = lines.filter(l => !l.auto && (l.item||"").trim() && (!nm || (l.item||"").trim().toLowerCase()===nm)).reduce((t,l)=> t + ((l.qty===""||l.qty==null)?1:(Number(l.qty)||0)), 0);
+        const over = st.remU!=null && thisQty > st.remU + 0.001;
+        return (
+          <div style={{background: over ? "#fdecec" : "#eef4ff", border:"1px solid "+(over?"#e5a0a0":"#cfe0f5"), borderLeft:"4px solid "+(over?"var(--red)":"#2563eb"), borderRadius:6, padding:"8px 12px", marginBottom:10, fontSize:13}}>
+            📦 <b>PO {bp.po_number}</b> · {Math.round(st.units).toLocaleString()} {bp.unit} delivered{st.remU!=null ? <> · <b>{Math.round(st.remU).toLocaleString()} {bp.unit} left</b></> : null}{st.remA!=null ? ` · ${fmt$(st.remA)} left` : ""}
+            {thisQty > 0 && st.remU!=null ? <> · this delivery: <b>{thisQty.toLocaleString()} {bp.unit}</b>{over ? <span style={{color:"var(--red)",fontWeight:700}}> — exceeds the remaining balance by {Math.round(thisQty - st.remU).toLocaleString()} {bp.unit}</span> : <span> → {Math.round(st.remU - thisQty).toLocaleString()} {bp.unit} will remain</span>}</> : null}
+          </div>); })()}
 
       {surchargeApplies() && (() => { const sc = surchargeFor(lines); const amt = sc.qty * sc.rate; return amt > 0 ? (
         <div style={{background:"#fdf6ea",border:"1px solid #ead6b4",borderLeft:"4px solid var(--brass)",borderRadius:6,padding:"8px 12px",marginBottom:10,fontSize:13}}>
@@ -1364,7 +1436,8 @@ function buildWoPdf(wo, hideRates){
 }
 
 // ─── STEP 2: OPEN WO LIST ────────────────────────────────────────────────────
-function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate, printerEmail, onNewDelivery }) {
+function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate, printerEmail, onNewDelivery, blanketPOs }) {
+  const blanketTag = (wo) => { const bp = wo.po_number ? findBlanket(blanketPOs, wo.po_number) : null; if (!bp) return null; const st = blanketStats(bp, workOrders); if (st.remU == null) return null; return <> · <span style={{color: st.remU<=0 ? "var(--red)" : "var(--inv)", fontWeight:600}}>{Math.round(st.remU).toLocaleString()} {bp.unit} left on PO</span></>; };
   const newDeliveryLabel = (wo) => (wo.po_number && wo.po_number !== "N/A") ? "🔁 New delivery" : "⧉ Duplicate";
   const open = workOrders.filter(w => w.status === "open");
   const recent = workOrders.filter(w => w.status === "invoiced").slice(0, 5);
@@ -1505,7 +1578,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
                   <div className="wo-id">WO #{wo.id} · {wo.date}</div>
                   <div className="wo-customer">{wo.customer}</div>
                   <div className="wo-info">
-                    {wo.technician || "—"} · {(wo.lines||[]).length} line{(wo.lines||[]).length!==1?"s":""}{wo.po_number ? <> · PO <b>{wo.po_number}</b></> : null}
+                    {wo.technician || "—"} · {(wo.lines||[]).length} line{(wo.lines||[]).length!==1?"s":""}{wo.po_number ? <> · PO <b>{wo.po_number}</b></> : null}{blanketTag(wo)}
                   </div>
                 </div>
               </div>
@@ -1877,7 +1950,86 @@ function Field({ label, children }) {
 
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
-function Dashboard({ workOrders, tenant, onOpenJobs }) {
+function BlanketOrders({ blanketPOs, workOrders, tenant, onChange }) {
+  const [editId, setEditId] = useState(null);
+  const [form, setForm] = useState({});
+  const [adding, setAdding] = useState(false);
+  const [msg, setMsg] = useState("");
+  const startEdit = (bp) => { setAdding(false); setEditId(bp.id); setForm({ unit_price: bp.unit_price, cap_amount: bp.cap_amount, cap_units: bp.cap_units, prior_delivered_units: bp.prior_delivered_units, prior_deliveries: bp.prior_deliveries, active: bp.active !== false }); };
+  const save = async () => {
+    const up = Number(form.unit_price)||0;
+    const patch = { unit_price: up, cap_amount: Number(form.cap_amount)||0, cap_units: Number(form.cap_units)||0,
+      prior_delivered_units: Number(form.prior_delivered_units)||0, prior_delivered_amount: Math.round((Number(form.prior_delivered_units)||0)*up*100)/100,
+      prior_deliveries: parseInt(form.prior_deliveries)||0, active: form.active !== false };
+    const { error } = await supabase.from("blanket_pos").update(patch).eq("id", editId);
+    if (error) setMsg("Could not save: " + error.message); else { setMsg("✓ Saved"); setEditId(null); onChange && onChange(); }
+  };
+  const add = async () => {
+    if (!(form.po_number||"").trim()) { setMsg("PO number is required"); return; }
+    const up = Number(form.unit_price)||0, capA = Number(form.cap_amount)||0;
+    const capU = Number(form.cap_units) || (capA && up ? Math.round(capA/up*100)/100 : 0);
+    const { error } = await supabase.from("blanket_pos").upsert({
+      tenant_id: tenant.id, po_number: form.po_number.trim(), customer_name: (form.customer_name||"").trim(), item_name: (form.item_name||"").trim(),
+      unit: (form.unit||"lb").trim() || "lb", unit_price: up, cap_amount: capA, cap_units: capU,
+      prior_delivered_units: Number(form.prior_delivered_units)||0, prior_delivered_amount: Math.round((Number(form.prior_delivered_units)||0)*up*100)/100,
+      prior_deliveries: parseInt(form.prior_deliveries)||0, active: true,
+    }, { onConflict: "tenant_id,po_number" });
+    if (error) setMsg("Could not add: " + error.message); else { setMsg("✓ Added"); setAdding(false); setForm({}); onChange && onChange(); }
+  };
+  const F = (k, label, props={}) => <div className="fg"><label className="label">{label}</label><input className="input" value={form[k] ?? ""} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} {...props}/></div>;
+  const active = (blanketPOs||[]).filter(b => b.active !== false);
+  return (
+    <div className="dash-section">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+        <h3 style={{margin:0}}>Blanket orders</h3>
+        <button className="btn-text" onClick={()=>{ setAdding(a=>!a); setEditId(null); setForm({unit:"lb"}); setMsg(""); }}>{adding ? "Cancel" : "+ Add blanket PO"}</button>
+      </div>
+      {msg && <div className={`ic-issue ${msg.startsWith("✓")?"ok":"warn"}`} style={{marginTop:8}}>{msg}</div>}
+      {adding && (
+        <div style={{marginTop:10}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
+            {F("po_number","PO number")}{F("customer_name","Customer")}{F("item_name","Item (optional — counts only this item)")}
+            {F("unit","Unit (lb, each…)")}{F("unit_price","Price per unit",{type:"number",step:"0.01"})}{F("cap_amount","Order total $",{type:"number",step:"0.01"})}
+            {F("cap_units","Order total units (optional — computed from $ ÷ price)",{type:"number",step:"any"})}
+            {F("prior_delivered_units","Already delivered before tracking (units)",{type:"number",step:"any"})}{F("prior_deliveries","Deliveries already made",{type:"number",step:"1"})}
+          </div>
+          <button className="btn btn-primary btn-sm" style={{marginTop:8}} onClick={add}>Add</button>
+        </div>
+      )}
+      {active.length===0 && !adding && <div style={{fontSize:13,color:"var(--muted)",marginTop:8}}>None yet. Upload a blanket PO in New Work Order, or add one here, to track pounds and dollars remaining.</div>}
+      {active.map(bp => { const st = blanketStats(bp, workOrders); return (
+        <div key={bp.id} style={{padding:"10px 0",borderBottom:"1px solid #f0f0ea"}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"flex-start"}}>
+            <div>
+              <div><b>PO {bp.po_number}</b> · {bp.customer_name}{bp.item_name ? ` · ${bp.item_name}` : ""}</div>
+              <div style={{fontSize:12,color:"var(--muted)"}}>{fmt$(bp.unit_price)} / {bp.unit||"unit"}{st.capA ? ` · order total ${fmt$(st.capA)}` : ""}{st.capU ? ` (${Math.round(st.capU).toLocaleString()} ${bp.unit})` : ""}</div>
+            </div>
+            <button className="btn-text" onClick={()=> editId===bp.id ? setEditId(null) : startEdit(bp)}>{editId===bp.id ? "Close" : "✎ Edit"}</button>
+          </div>
+          <div style={{height:10,background:"#eee9de",borderRadius:5,margin:"8px 0 4px",overflow:"hidden"}}>
+            <div style={{width:(st.pct*100)+"%",height:"100%",background: st.pct>=1 ? "var(--red)" : st.pct>=0.85 ? "#d97706" : "var(--inv)",transition:"width .3s"}}></div>
+          </div>
+          <div style={{fontSize:13}}>
+            <b>{Math.round(st.units).toLocaleString()} {bp.unit}</b> delivered ({fmt$(st.amount)})
+            {st.remU!=null ? <> · <b style={{color: st.remU<=0 ? "var(--red)" : "var(--inv)"}}>{Math.round(st.remU).toLocaleString()} {bp.unit} left</b></> : null}
+            {st.remA!=null ? ` · ${fmt$(st.remA)} left` : ""} · {st.deliveries} deliver{st.deliveries===1?"y":"ies"}
+          </div>
+          {editId===bp.id && (
+            <div style={{marginTop:8}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
+                {F("unit_price","Price per unit",{type:"number",step:"0.01"})}{F("cap_amount","Order total $",{type:"number",step:"0.01"})}{F("cap_units",`Order total ${bp.unit}`,{type:"number",step:"any"})}
+                {F("prior_delivered_units",`Delivered before tracking (${bp.unit})`,{type:"number",step:"any"})}{F("prior_deliveries","Deliveries before tracking",{type:"number",step:"1"})}
+              </div>
+              <label style={{fontSize:13,display:"flex",gap:8,alignItems:"center",marginTop:8}}><input type="checkbox" checked={form.active!==false} onChange={e=>setForm(f=>({...f,active:e.target.checked}))}/> Still active (uncheck when the order is complete)</label>
+              <button className="btn btn-primary btn-sm" style={{marginTop:8}} onClick={save}>Save</button>
+            </div>
+          )}
+        </div>); })}
+    </div>
+  );
+}
+
+function Dashboard({ workOrders, tenant, onOpenJobs, blanketPOs, onBlanketsChange }) {
   const qtyOf = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
   const woTotal = (wo) => (wo.lines||[]).reduce((s,l)=> s + qtyOf(l)*(Number(l.rate)||0), 0);
   const now = new Date();
@@ -1942,6 +2094,7 @@ function Dashboard({ workOrders, tenant, onOpenJobs }) {
           ))}
         </div>
       </div>
+      <BlanketOrders blanketPOs={blanketPOs} workOrders={workOrders} tenant={tenant} onChange={onBlanketsChange} />
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12}}>
         <div className="dash-section">
           <h3>Top technicians</h3>
