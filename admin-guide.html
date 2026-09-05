@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Admin Guide — Team, Roles & Security — AI Work Orders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{--ink:#15212e;--paper:#f6f4ee;--card:#fff;--line:#d8d2c4;--muted:#6b7480;--brass:#b07a26;--inv:#2c5b8a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:820px;margin:0 auto;padding:28px 20px 60px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:22px}
+.brand{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
+.brand a{color:var(--muted);text-decoration:none}
+.nav a{font-size:13px;color:var(--inv);text-decoration:none;margin-left:14px}
+.card{background:var(--card);border:1.5px solid var(--line);border-radius:12px;padding:28px 26px}
+h1{font-size:28px;letter-spacing:-0.5px;margin:0 0 4px}
+.eff{font-size:13px;color:var(--muted);margin-bottom:22px}
+h2{font-size:17px;margin:26px 0 8px;padding-top:14px;border-top:1px solid #eee9de}
+h2:first-of-type{border-top:none;padding-top:0;margin-top:14px}
+h3{font-size:14px;margin:14px 0 4px}
+p,li{font-size:14.5px}
+ul{padding-left:20px}
+li{margin:4px 0}
+.callout{background:#f7faff;border:1.5px solid #cfe0f5;border-left:5px solid var(--inv);border-radius:8px;padding:12px 14px;font-size:14px;margin:12px 0}
+.callout.brass{background:#fdf6ea;border-color:#ead6b4;border-left-color:var(--brass)}
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin:8px 0}
+th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#f6f4ee}
+a{color:var(--inv)}
+.foot{font-size:12px;color:var(--muted);margin-top:22px;text-align:center}
+@media print{body{background:#fff}.card{border:none;padding:0}.nav{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand"><a href="/">Prompted To Do This · Software Studio</a></div>
+    <div class="nav"><a href="/">Home</a><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a></div>
+  </div>
+  <div class="card">
+
+<h1>Admin Guide: Team, Roles &amp; Security</h1>
+<div class="eff">AI Work Orders · for company owners and admins · 5-minute read</div>
+
+<div class="callout"><b>The one thing to remember:</b> everything about your team lives in one place — <b>Settings → Team Members</b>. Invite, change roles, reset a password, remove someone. You never need to contact support for any of it.</div>
+
+<h2>The four roles</h2>
+<table>
+  <tr><th>Role</th><th>What they can do</th><th>Give it to</th></tr>
+  <tr><td><b>Owner</b></td><td>Everything. Created the company. Can't be removed or demoted.</td><td>The business owner</td></tr>
+  <tr><td><b>Admin</b></td><td>Everything the owner can: team, settings, price book, imports, automations, the QuickBooks connection.</td><td>Office manager, bookkeeper, a trusted #2</td></tr>
+  <tr><td><b>Tech</b></td><td>Creates and edits work orders on the job. Can't see settings or pricing setup.</td><td>Field technicians, drivers, crew leads</td></tr>
+  <tr><td><b>Viewer</b></td><td>Read-only — can look, can't change anything.</td><td>Office staff who just need to look things up</td></tr>
+</table>
+<p><b>Can invoice</b> is a separate switch on top of the role. A Tech with "Can invoice" can push finished work orders to QuickBooks as invoices; without it, an admin does that step. Owners and Admins can always invoice.</p>
+
+<h2>Everyday tasks</h2>
+
+<h3>🔑 Someone forgot their password</h3>
+<p>Two ways, both take under a minute:</p>
+<ul>
+  <li><b>You do it:</b> Settings → Team Members → tap <b>Reset password</b> next to their name. They get an email with a link to choose a new password.</li>
+  <li><b>They do it:</b> on the sign-in screen, tap <b>Forgot password?</b>, enter their email, and follow the emailed link.</li>
+</ul>
+<p>Either way, nobody — not even you — ever sees anyone's password. A reset link is the only way to change one, and only the person with that email inbox can use it.</p>
+
+<h3>＋ A new employee starts</h3>
+<ol>
+  <li>Settings → Team Members → <b>Invite Team Member</b>.</li>
+  <li>Enter their email, pick a role, tick "Can invoice" if they bill customers.</li>
+  <li>Send them the app link. They tap <b>Create an account</b> and sign up with that <b>exact</b> email — they join your team automatically with the role you chose.</li>
+</ol>
+<p>Each plan includes a set number of seats (Basic 5 · GPS 10 · Pro 20). Pending invites count toward it.</p>
+
+<h3>✕ Someone leaves</h3>
+<p>Settings → Team Members → tap <b>✕</b> next to their name. Their access ends <b>immediately</b>, even if they're signed in on their phone. Their past work orders stay in your records. If it was a mistake — or they come back — open <b>Removed</b> and tap <b>Reactivate</b>.</p>
+
+<h3>↕ Promote or demote</h3>
+<p>Change the role dropdown next to their name. It takes effect the next time they open the app.</p>
+
+<h2>Keeping the company secure</h2>
+<ul>
+  <li><b>One login per person.</b> Never share a password — invites are free within your seat limit, and shared logins mean you can't tell who did what.</li>
+  <li><b>Remove people the day they leave.</b> It's one tap, and it's the single most important security habit.</li>
+  <li><b>Be stingy with "Can invoice."</b> Only people who actually bill customers need it.</li>
+  <li><b>Keep a second Admin.</b> If the Owner ever loses access, a second Admin can still run the company and reset passwords. Don't be a company of one admin.</li>
+  <li><b>Use a strong owner password.</b> Eight characters minimum; a short phrase is easier to remember and harder to guess than a clever word.</li>
+  <li><b>QuickBooks is connected once, by an admin.</b> Techs never touch it. If you ever suspect a problem, Settings → Disconnect QuickBooks cuts the link instantly, and reconnecting takes 30 seconds.</li>
+</ul>
+
+<h2>What's protected automatically</h2>
+<ul>
+  <li>Every company's data is isolated from every other company's, enforced in the database itself.</li>
+  <li>Roles are enforced on the server, not just hidden in the app — a Tech can't invoice or change pricing even by tinkering.</li>
+  <li>A work order can only ever become <b>one</b> QuickBooks invoice, so a double-tap can't double-bill a customer.</li>
+  <li>QuickBooks tokens and API keys live only on the server, never in anyone's browser.</li>
+</ul>
+
+<div class="callout brass"><b>Locked out entirely?</b> If the Owner can't sign in and there's no second Admin, email <a href="mailto:rodney@prompted2dothis.com">rodney@prompted2dothis.com</a> from the owner's email address and we'll verify and help.</div>
+  </div>
+  <div class="foot">© 2026 Prompted To Do This LLC · <a href="mailto:rodney@prompted2dothis.com">rodney@prompted2dothis.com</a></div>
+</div>
+</body>
+</html>

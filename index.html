@@ -428,13 +428,16 @@ function App() {
   const [userRole, setUserRole] = useState("tech");
   const [canInvoice, setCanInvoice] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [recovery, setRecovery] = useState(false); // arrived from a password-reset email
 
   useEffect(() => {
+    if (/type=recovery/.test(window.location.hash || "")) setRecovery(true);
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) loadUser(session.user);
       else setView("landing");
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (_e === "PASSWORD_RECOVERY") setRecovery(true);
       if (session?.user) loadUser(session.user);
       else { setUser(null); setTenant(null); setView("landing"); }
     });
@@ -480,6 +483,9 @@ function App() {
     setView("wizard");
   };
 
+  if (recovery) return user
+    ? <SetNewPassword onDone={() => { setRecovery(false); try { history.replaceState(null, "", window.location.pathname); } catch (_e) {} }} />
+    : <div className="auth-wrap"><div>Loading…</div></div>;
   if (view === "loading") return <div className="auth-wrap"><div>Loading…</div></div>;
   if (view === "landing") return <Landing onSignup={()=>setView("signup")} onSignin={()=>setView("signin")} />;
   if (view === "signin")  return <SignIn onSwitchSignup={()=>setView("signup")} onBack={()=>setView("landing")} />;
@@ -508,28 +514,93 @@ function Landing({ onSignup, onSignin }) {
 }
 
 // ─── AUTH FORMS ──────────────────────────────────────────────────────────────
-function SignIn({ onSwitchSignup, onBack }) {
-  const [email,setEmail]=useState(""); const [password,setPassword]=useState("");
-  const [err,setErr]=useState(""); const [loading,setLoading]=useState(false);
-  const submit=async e=>{e.preventDefault();setErr("");setLoading(true);
-    const {error}=await supabase.auth.signInWithPassword({email,password});
-    if(error)setErr(error.message); setLoading(false);};
+// Where password-reset emails send people back to (this exact app URL)
+const APP_URL = () => window.location.origin + window.location.pathname;
+
+function SetNewPassword({ onDone }) {
+  const [pw,setPw]=useState(""); const [pw2,setPw2]=useState("");
+  const [err,setErr]=useState(""); const [ok,setOk]=useState(false); const [busy,setBusy]=useState(false);
+  const submit=async e=>{ e.preventDefault(); setErr("");
+    if (pw.length < 8) { setErr("Use at least 8 characters."); return; }
+    if (pw !== pw2) { setErr("Those passwords don't match."); return; }
+    setBusy(true);
+    const { error } = await supabase.auth.updateUser({ password: pw });
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    setOk(true); setTimeout(onDone, 1200);
+  };
   return (
     <div className="auth-wrap"><div className="auth-card">
       <div className="auth-logo">AI Work Orders</div>
       <div className="auth-tag">By Prompted To Do This</div>
-      <h2 className="auth-h2">Welcome back</h2>
-      <p className="auth-sub">Sign in to your account</p>
+      <h2 className="auth-h2">Choose a new password</h2>
+      <p className="auth-sub">You're here from your reset link — set a new password to finish.</p>
       {err && <div className="alert alert-error">{err}</div>}
+      {ok ? <div style={{background:"#eef6f1",border:"1px solid #2ca01c",borderRadius:6,padding:"10px 12px",fontSize:13}}>✓ Password updated — taking you in…</div> : (
       <form onSubmit={submit}>
-        <div className="fg"><label className="label">Email</label>
-          <input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoFocus/></div>
-        <div className="fg"><label className="label">Password</label>
-          <input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} required/></div>
-        <button type="submit" className="btn btn-primary btn-full" disabled={loading}>{loading?"Signing in…":"Sign In"}</button>
-      </form>
-      <div className="auth-foot">New here? <button className="btn-link" onClick={onSwitchSignup}>Create an account</button></div>
-      <div className="auth-foot"><button className="btn-link" onClick={onBack}>← Back</button></div>
+        <div className="fg"><label className="label">New password</label>
+          <input className="input" type="password" value={pw} onChange={e=>setPw(e.target.value)} required autoFocus minLength={8} placeholder="At least 8 characters"/></div>
+        <div className="fg"><label className="label">Confirm new password</label>
+          <input className="input" type="password" value={pw2} onChange={e=>setPw2(e.target.value)} required/></div>
+        <button type="submit" className="btn btn-primary btn-full" disabled={busy}>{busy?"Saving…":"Save new password"}</button>
+      </form>)}
+    </div></div>);
+}
+
+function SignIn({ onSwitchSignup, onBack }) {
+  const [email,setEmail]=useState(""); const [password,setPassword]=useState("");
+  const [err,setErr]=useState(""); const [loading,setLoading]=useState(false);
+  const [forgot,setForgot]=useState(false); const [sent,setSent]=useState(false);
+  const submit=async e=>{e.preventDefault();setErr("");setLoading(true);
+    const {error}=await supabase.auth.signInWithPassword({email,password});
+    if(error)setErr(error.message); setLoading(false);};
+  const sendReset=async e=>{ e.preventDefault(); setErr("");
+    if (!email.trim()) { setErr("Enter your email address first."); return; }
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: APP_URL() });
+    setLoading(false);
+    if (error) { setErr(error.message); return; }
+    setSent(true);
+  };
+  return (
+    <div className="auth-wrap"><div className="auth-card">
+      <div className="auth-logo">AI Work Orders</div>
+      <div className="auth-tag">By Prompted To Do This</div>
+      {forgot ? (
+        <>
+          <h2 className="auth-h2">Reset your password</h2>
+          <p className="auth-sub">We'll email you a link to choose a new one.</p>
+          {err && <div className="alert alert-error">{err}</div>}
+          {sent ? (
+            <div style={{background:"#eef6f1",border:"1px solid #2ca01c",borderRadius:6,padding:"10px 12px",fontSize:13,lineHeight:1.5}}>
+              ✓ <b>Check your email.</b> We sent a reset link to <b>{email.trim()}</b>. Tap it to choose a new password. It can take a minute — check spam if you don't see it.
+            </div>
+          ) : (
+            <form onSubmit={sendReset}>
+              <div className="fg"><label className="label">Email</label>
+                <input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoFocus/></div>
+              <button type="submit" className="btn btn-primary btn-full" disabled={loading}>{loading?"Sending…":"Send reset link"}</button>
+            </form>
+          )}
+          <div className="auth-foot"><button className="btn-link" onClick={()=>{ setForgot(false); setSent(false); setErr(""); }}>← Back to sign in</button></div>
+        </>
+      ) : (
+        <>
+          <h2 className="auth-h2">Welcome back</h2>
+          <p className="auth-sub">Sign in to your account</p>
+          {err && <div className="alert alert-error">{err}</div>}
+          <form onSubmit={submit}>
+            <div className="fg"><label className="label">Email</label>
+              <input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoFocus/></div>
+            <div className="fg"><label className="label">Password</label>
+              <input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} required/></div>
+            <button type="submit" className="btn btn-primary btn-full" disabled={loading}>{loading?"Signing in…":"Sign In"}</button>
+          </form>
+          <div className="auth-foot"><button className="btn-link" onClick={()=>{ setForgot(true); setErr(""); }}>Forgot password?</button></div>
+          <div className="auth-foot">New here? <button className="btn-link" onClick={onSwitchSignup}>Create an account</button></div>
+          <div className="auth-foot"><button className="btn-link" onClick={onBack}>← Back</button></div>
+        </>
+      )}
     </div></div>);
 }
 
@@ -668,6 +739,15 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
   };
   // Pro automation: fuel surcharge rule. If it's on and more than 6 days old,
   // refresh from this week's diesel price (the weekly schedule also does this).
+  // Second-admin safety nudge: a company with a single admin is one lost password from lockout.
+  const [adminCount, setAdminCount] = useState(null);
+  const [nudgeDismissed, setNudgeDismissed] = useState(() => { try { return localStorage.getItem("nudge2admin:" + tenant.id) === "1"; } catch (_e) { return false; } });
+  const loadAdminCount = async () => {
+    const { count } = await supabase.from("tenant_users").select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenant.id).eq("active", true).in("role", ["owner", "admin"]);
+    setAdminCount(typeof count === "number" ? count : null);
+  };
+  const dismissNudge = () => { setNudgeDismissed(true); try { localStorage.setItem("nudge2admin:" + tenant.id, "1"); } catch (_e) {} };
   const [blanketPOs, setBlanketPOs] = useState([]);
   const loadBlankets = async () => {
     const { data } = await supabase.from("blanket_pos").select("*").eq("tenant_id", tenant.id).order("created_at", { ascending: false });
@@ -690,7 +770,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
   };
 
   useEffect(() => {
-    Promise.all([loadWOs(), loadQbo(), loadSettings(), loadAutomation(), loadBlankets()]).then(() => setLoading(false));
+    Promise.all([loadWOs(), loadQbo(), loadSettings(), loadAutomation(), loadBlankets(), loadAdminCount()]).then(() => setLoading(false));
   }, [tenant.id]);
 
   // Hide rates from techs if setting is on and user is a tech (not owner/admin)
@@ -742,9 +822,17 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
         </div>
       )}
 
+      {isAdmin && adminCount === 1 && !nudgeDismissed && (
+        <div style={{background:"#eef4ff",borderBottom:"1px solid #cfe0f5",padding:"8px 16px",fontSize:13,display:"flex",justifyContent:"center",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span>🛡 <b>You're the only admin.</b> If you ever lose access, no one can reset passwords or manage the team. Add a backup admin — it takes ten seconds.</span>
+          <button className="btn btn-primary btn-sm" onClick={()=>setShowSettings(true)}>Open Team</button>
+          <button className="btn-text" onClick={dismissNudge} style={{fontSize:12}}>Dismiss</button>
+        </div>
+      )}
+
       {showSettings && (
         <Settings tenant={tenant} user={user} userRole={userRole} qboConnected={qboConnected}
-          settings={settings}
+          settings={settings} onTeamChange={loadAdminCount}
           onClose={()=>setShowSettings(false)}
           onQboChange={loadQbo}
           onSettingsChange={loadSettings}/>
@@ -1771,7 +1859,7 @@ function InvoicePush({ wo, qboConnected, user, onDone, onBack, mayInvoice }) {
 
 // ─── SETTINGS MODAL ──────────────────────────────────────────────────────────
 // ─── TEAM MANAGEMENT (Owner/Admin only) ─────────────────────────────────────
-function TeamSection({ tenant, currentUserId }) {
+function TeamSection({ tenant, currentUserId, onTeamChange }) {
   const [members, setMembers] = useState([]);
   const [invites, setInvites] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1780,6 +1868,8 @@ function TeamSection({ tenant, currentUserId }) {
   const [inviteRole, setInviteRole] = useState("tech");
   const [inviteInvoice, setInviteInvoice] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showRemoved, setShowRemoved] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   const load = async () => {
     const [{ data: m }, { data: i }] = await Promise.all([
@@ -1789,6 +1879,7 @@ function TeamSection({ tenant, currentUserId }) {
     setMembers(m || []);
     setInvites(i || []);
     setLoading(false);
+    onTeamChange && onTeamChange();
   };
 
   useEffect(() => { load(); }, []);
@@ -1814,7 +1905,7 @@ function TeamSection({ tenant, currentUserId }) {
       });
       if (error) throw error;
 
-      alert(`✅ Invite created for ${email}.\n\nShare this link with them:\n${window.location.origin}\n\nThey should sign up with this exact email address. They'll automatically join your team.`);
+      alert(`✅ Invite created for ${email}.\n\nSend them this link:\n${APP_URL()}\n\nThey tap "Create an account" and sign up with this exact email — they'll join your team automatically with the role you chose.`);
       setInviteEmail(""); setInviteRole("tech"); setInviteInvoice(false); setShowInvite(false);
       load();
     } catch (e) {
@@ -1836,18 +1927,49 @@ function TeamSection({ tenant, currentUserId }) {
   };
 
   const removeMember = async (id, email) => {
-    if (!confirm(`Remove ${email} from the team? They'll lose access immediately.`)) return;
+    if (!confirm(`Remove ${email} from the team? They'll lose access immediately. (You can bring them back later from "Removed".)`)) return;
     await supabase.from("tenant_users").update({ active: false }).eq("id", id);
     load();
   };
 
+  // Lost password: email them a reset link. Only the owner of that inbox can use it.
+  const sendReset = async (email) => {
+    if (!confirm(`Email a password-reset link to ${email}?`)) return;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: APP_URL() });
+    if (error) alert(`Could not send: ${error.message}`);
+    else alert(`✅ Reset link sent to ${email}.\n\nThey'll get an email with a link to choose a new password. If it doesn't arrive in a few minutes, have them check spam — or they can tap "Forgot password?" on the sign-in screen themselves.`);
+  };
+
+  const reactivate = async (id, email) => {
+    if (seatsUsed >= seatLimit) { alert(`All ${seatLimit} seats are in use on the ${tenant.plan} plan. Remove someone or upgrade to bring ${email} back.`); return; }
+    await supabase.from("tenant_users").update({ active: true }).eq("id", id);
+    load();
+  };
+  const ROLE_HINT = { owner: "Owner — full control, can't be removed", admin: "Admin — team, settings, pricing, QuickBooks", tech: "Tech — creates & edits work orders", viewer: "Viewer — read-only" };
+
   const seatLimit = SEAT_LIMITS[tenant.plan] || 5;
   const seatsUsed = members.filter(m=>m.active).length + invites.length;
+  const activeMembers = members.filter(m=>m.active);
+  const admins = activeMembers.filter(m => m.role === "owner" || m.role === "admin");
+  const promotable = activeMembers.filter(m => m.role !== "owner" && m.role !== "admin");
 
   return (
     <div className="settings-section">
       <div className="settings-h">Team Members</div>
       <div className="settings-sub">Invite teammates and assign roles. <b>{seatsUsed} of {seatLimit} seats used</b> on the {tenant.plan} plan.</div>
+      {!loading && admins.length === 1 && (
+        <div style={{background:"#eef4ff",border:"1px solid #cfe0f5",borderLeft:"4px solid #2563eb",borderRadius:6,padding:"10px 12px",marginBottom:12,fontSize:13,lineHeight:1.5}}>
+          🛡 <b>You're the only admin.</b> A backup admin means a lost password can never lock the company out — they can reset yours, and you can reset theirs.
+          {promotable.length > 0 ? (
+            <div style={{marginTop:6,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+              <span>Make someone an admin:</span>
+              {promotable.slice(0,4).map(m => <button key={m.id} className="btn btn-outline btn-sm" onClick={()=>{ if (confirm(`Make ${m.email} an Admin? They'll be able to manage the team, settings, pricing and QuickBooks.`)) updateMember(m.id,{role:"admin"}); }}>Make {m.email.split("@")[0]} admin</button>)}
+            </div>
+          ) : (
+            <div style={{marginTop:4}}>Invite a trusted teammate below and choose the <b>Admin</b> role.</div>
+          )}
+        </div>
+      )}
 
       {loading ? <div style={{fontSize:13,color:"var(--muted)"}}>Loading…</div> : (
         <>
@@ -1860,24 +1982,26 @@ function TeamSection({ tenant, currentUserId }) {
                     {m.email}
                     {m.user_id === currentUserId && <span style={{fontSize:10,marginLeft:6,padding:"1px 5px",background:"#d6eaf8",color:"#1b4f72",borderRadius:3}}>YOU</span>}
                   </div>
-                  <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>
-                    {m.role}{m.can_invoice && " · can invoice"}
+                  <div style={{fontSize:11,color:"var(--muted)",marginTop:2}} title={ROLE_HINT[m.role]||""}>
+                    {ROLE_HINT[m.role] ? ROLE_HINT[m.role].split(" — ")[0] : m.role}{m.can_invoice ? " · can invoice" : ""}
                   </div>
                 </div>
-                <div style={{display:"flex",gap:4}}>
+                <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
+                  <button onClick={()=>sendReset(m.email)} title="Email this person a link to choose a new password"
+                    style={{fontSize:11,padding:"4px 8px",border:"1px solid var(--line)",borderRadius:4,background:"#fff",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>🔑 Reset password</button>
                   {m.user_id !== currentUserId && m.role !== "owner" && (
                     <>
-                      <select value={m.role} onChange={e=>updateMember(m.id,{role:e.target.value})}
+                      <select value={m.role} onChange={e=>updateMember(m.id,{role:e.target.value})} title="Change role"
                         style={{fontSize:11,padding:"4px 6px",border:"1px solid var(--line)",borderRadius:4,fontFamily:"inherit"}}>
                         <option value="admin">Admin</option>
                         <option value="tech">Tech</option>
                         <option value="viewer">Viewer</option>
                       </select>
-                      <label style={{display:"flex",alignItems:"center",gap:4,fontSize:11}}>
+                      <label style={{display:"flex",alignItems:"center",gap:4,fontSize:11,whiteSpace:"nowrap",cursor:"pointer"}} title="Allowed to push invoices to QuickBooks">
                         <input type="checkbox" checked={m.can_invoice} onChange={e=>updateMember(m.id,{can_invoice:e.target.checked})}/>
-                        $
+                        Can invoice
                       </label>
-                      <button onClick={()=>removeMember(m.id, m.email)} title="Remove"
+                      <button onClick={()=>removeMember(m.id, m.email)} title="Remove from team"
                         style={{background:"transparent",border:"none",color:"var(--red)",cursor:"pointer",fontSize:13,padding:"0 4px"}}>✕</button>
                     </>
                   )}
@@ -1885,6 +2009,24 @@ function TeamSection({ tenant, currentUserId }) {
               </div>
             ))}
           </div>
+
+          {/* Removed members — reactivate */}
+          {members.some(m=>!m.active) && (
+            <div style={{marginBottom:12}}>
+              <button className="btn-text" onClick={()=>setShowRemoved(v=>!v)} style={{fontSize:12}}>
+                {showRemoved ? "▾" : "▸"} Removed ({members.filter(m=>!m.active).length})
+              </button>
+              {showRemoved && members.filter(m=>!m.active).map(m => (
+                <div key={m.id} style={{padding:"8px 12px",background:"#f4f2ec",borderRadius:6,marginTop:6,display:"grid",gridTemplateColumns:"1fr auto",gap:8,alignItems:"center"}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:"var(--muted)"}}>{m.email}</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>{m.role} · removed</div>
+                  </div>
+                  <button className="btn btn-outline btn-sm" onClick={()=>reactivate(m.id, m.email)}>Reactivate</button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Pending invites */}
           {invites.length > 0 && (
@@ -1937,6 +2079,31 @@ function TeamSection({ tenant, currentUserId }) {
               </div>
             </div>
           )}
+
+          {/* Roles & security guide */}
+          <div style={{marginTop:14,borderTop:"1px solid #eee9de",paddingTop:10}}>
+            <button className="btn-text" onClick={()=>setShowHelp(v=>!v)} style={{fontSize:13,fontWeight:700}}>{showHelp ? "▾" : "▸"} How roles & security work</button>
+            {showHelp && (
+              <div style={{fontSize:13,lineHeight:1.6,marginTop:8}}>
+                <div style={{fontWeight:700,marginBottom:4}}>Roles</div>
+                <div><b>Owner</b> — created the company. Full control; can't be removed or demoted.</div>
+                <div><b>Admin</b> — everything the owner can do: team, settings, price book, imports, automations, the QuickBooks connection.</div>
+                <div><b>Tech</b> — creates and edits work orders on the job. Can't see settings or pricing setup. Tick <b>Can invoice</b> to let a tech push invoices to QuickBooks.</div>
+                <div><b>Viewer</b> — read-only. Good for office staff who just need to look things up.</div>
+                <div style={{fontWeight:700,margin:"10px 0 4px"}}>Everyday tasks</div>
+                <div>🔑 <b>Someone forgot their password</b> — tap <b>Reset password</b> next to their name. They get an email link to choose a new one. (They can also tap <b>Forgot password?</b> on the sign-in screen themselves.)</div>
+                <div>＋ <b>New employee</b> — Invite them. They create an account with that exact email and land on your team with the role you picked.</div>
+                <div>✕ <b>Someone leaves</b> — Remove them. Their access ends immediately. Bring them back any time from <b>Removed</b>.</div>
+                <div>↕ <b>Promote or demote</b> — change the role dropdown. Takes effect the next time they load the app.</div>
+                <div style={{fontWeight:700,margin:"10px 0 4px"}}>Keeping it secure</div>
+                <div>• One login per person — never share a password. Invites are free within your seat limit.</div>
+                <div>• Remove people the day they leave.</div>
+                <div>• Only give <b>Can invoice</b> to people who bill customers.</div>
+                <div>• Keep a second Admin besides the Owner, so a lost owner password never locks the company out.</div>
+                <div>• Passwords are never visible to anyone, including admins — a reset link is the only way to change one.</div>
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
@@ -2849,7 +3016,7 @@ function PriceBook({ tenant }) {
   );
 }
 
-function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQboChange, onSettingsChange }) {
+function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQboChange, onSettingsChange, onTeamChange }) {
   const [syncing, setSyncing] = useState(false);
   const [c2qbImgOk, setC2qbImgOk] = useState(true); // official Intuit button image present?
   const [itemCount, setItemCount] = useState(0);
@@ -3086,7 +3253,7 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
             </div>
           )}
 
-          {isAdmin && <TeamSection tenant={tenant} currentUserId={user.id}/>}
+          {isAdmin && <TeamSection tenant={tenant} currentUserId={user.id} onTeamChange={onTeamChange}/>}
 
           <div className="settings-section">
             <div className="settings-h">QuickBooks Online</div>
@@ -3144,7 +3311,7 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
           <div className="settings-section">
             <div className="settings-h">Coming Soon</div>
             <div style={{fontSize:13,color:"var(--muted)",lineHeight:1.7}}>
-              ✓ Team members & PIN authentication<br/>
+              ✓ Customer signature & photo on work orders<br/>
               ✓ Custom service catalog editor<br/>
               ✓ Email templates & default rates<br/>
               ✓ Customer & technician lists<br/>
