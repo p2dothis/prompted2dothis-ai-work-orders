@@ -390,7 +390,11 @@ async function fnErrMsg(error) {
   try {
     if (error && error.context && typeof error.context.json === "function") {
       const b = await error.context.json();
-      if (b && b.error) msg = b.error;
+      if (b && b.error) {
+        msg = typeof b.error === "string" ? b.error : JSON.stringify(b.error);
+        const d = b.detail && (b.detail.message || b.detail.error || (typeof b.detail === "string" ? b.detail : null));
+        if (d) msg += " — " + (typeof d === "string" ? d : JSON.stringify(d));
+      }
     }
   } catch (_e) {}
   return msg;
@@ -1539,11 +1543,39 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
       setPrintMsg("Sending WO #"+wo.id+" to the printer…");
       const pdf = buildWoPdf(wo, hideRates);
       const { data, error } = await supabase.functions.invoke("email-print", { body: { to: printerEmail, subject:"Work Order #"+wo.id+" — "+wo.customer, filename:"WO-"+wo.id+".pdf", pdf_base64: pdf } });
-      if (error) throw new Error(error.message);
-      if (data && data.error) throw new Error(typeof data.error==="string"?data.error:JSON.stringify(data.error));
-      setPrintMsg("✓ Sent WO #"+wo.id+" to the printer");
-    } catch(e) { setPrintMsg("Print failed: "+e.message); }
-    setTimeout(()=>setPrintMsg(""), 5000);
+      if (error) throw new Error(await fnErrMsg(error));
+      if (data && data.error) throw new Error((typeof data.error==="string"?data.error:JSON.stringify(data.error)) + (data.detail ? " — " + (data.detail.message || JSON.stringify(data.detail)) : ""));
+      setPrintMsg("✓ Sent WO #"+wo.id+" to "+printerEmail+" — allow a minute for the printer to pick it up");
+      setTimeout(()=>setPrintMsg(""), 6000);
+    } catch(e) {
+      setPrintMsg("Print failed: "+e.message);
+      setTimeout(()=>setPrintMsg(""), 20000);
+    }
+  };
+
+  // ── Share / download the work-order PDF (AirPrint, text, email — no printer setup needed) ──
+  const sharePdf = async (wo) => {
+    try {
+      const b64 = buildWoPdf(wo, hideRates);
+      const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const name = "WO-" + wo.id + ".pdf";
+      const file = (typeof File !== "undefined") ? new File([blob], name, { type: "application/pdf" }) : null;
+      // Phones: open the share sheet (AirPrint, Messages, Mail, Files…)
+      if (file && navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+        try { await navigator.share({ files: [file], title: "Work Order #" + wo.id, text: "Work Order #" + wo.id + " — " + (wo.customer || "") }); return; }
+        catch (e) { if (e && e.name === "AbortError") return; /* user cancelled */ }
+      }
+      // Desktop / fallback: open the PDF in a new tab (print from there) or download it
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, "_blank");
+      if (!win) { const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      setPrintMsg("Couldn't build the PDF: " + e.message);
+      setTimeout(()=>setPrintMsg(""), 8000);
+    }
   };
 
   // ── Batch invoicing ──
@@ -1677,6 +1709,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
               <div className="wo-actions">
                 {canCreate && <button className="btn btn-outline btn-sm" onClick={()=>onEditOpen(wo)}>✎ Edit</button>}
                 <button className="btn btn-outline btn-sm" onClick={()=>doPrint(wo)}>🖨 Print</button>
+                <button className="btn btn-outline btn-sm" onClick={()=>sharePdf(wo)} title="Open or share the PDF — AirPrint, text, or email it">📄 PDF</button>
                 {canCreate && onNewDelivery && <button className="btn btn-outline btn-sm" onClick={()=>onNewDelivery(wo)} title="Start a new work order with the same customer, PO number, lines and prices">{newDeliveryLabel(wo)}</button>}
                 {mayInvoice && (
                 <button className="btn btn-outline btn-sm" onClick={()=>onPickInvoice(wo)}>
@@ -1711,6 +1744,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
               </div>
               <div className="wo-actions">
                 {mayInvoice && <button className="btn btn-outline btn-sm" onClick={()=>onEditInvoiced(wo)}>✎ Edit</button>}
+                <button className="btn btn-outline btn-sm" onClick={()=>sharePdf(wo)} title="Open or share the PDF — AirPrint, text, or email it">📄 PDF</button>
                 {canCreate && onNewDelivery && <button className="btn btn-outline btn-sm" onClick={()=>onNewDelivery(wo)} title="Start a new work order with the same customer, PO number, lines and prices">{newDeliveryLabel(wo)}</button>}
               </div>
             </div>
