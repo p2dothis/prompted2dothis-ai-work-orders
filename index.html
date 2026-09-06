@@ -438,7 +438,10 @@ function App() {
     if (/type=recovery/.test(window.location.hash || "")) setRecovery(true);
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) loadUser(session.user);
-      else setView("landing");
+      else {
+        const want = (new URLSearchParams(window.location.search).get("view") || "").toLowerCase();
+        setView(want === "signin" ? "signin" : want === "signup" ? "signup" : "landing");
+      }
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
       if (_e === "PASSWORD_RECOVERY") setRecovery(true);
@@ -3132,10 +3135,11 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
   };
 
   const disconnectQbo = async () => {
-    if (!confirm("Disconnect QuickBooks? You can reconnect anytime.")) return;
-    await supabase.from("qbo_tokens").delete().eq("tenant_id", tenant.id);
+    if (!confirm("Disconnect QuickBooks? This revokes the app's access to your QuickBooks Online company. You can reconnect anytime.")) return;
+    const { data, error } = await supabase.functions.invoke("qbo-disconnect", { body: { tenant_id: tenant.id } });
+    if (error || !data || !data.success) { alert("Could not disconnect: " + ((data && data.error) || (error ? await fnErrMsg(error) : "unknown"))); return; }
     onQboChange();
-    alert("QuickBooks disconnected.");
+    alert("QuickBooks disconnected. The app's access has been revoked with Intuit. Reconnect anytime from Settings.");
   };
 
   const syncItems = async () => {
