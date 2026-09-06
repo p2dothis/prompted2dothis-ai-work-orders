@@ -3327,7 +3327,7 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
                   <button className="btn btn-outline btn-sm" onClick={syncCustomers} disabled={syncingCust}>
                     {syncingCust ? "Syncing…" : custCount > 0 ? "🔄 Re-sync Customers" : "📥 Sync Customers"}
                   </button>
-                  {isAdmin && <button className="btn-text" onClick={disconnectQbo} style={{color:"var(--red)"}}>Disconnect</button>}
+                  {isAdmin && <button className="btn-text" onClick={disconnectQbo} style={{color:"var(--red)"}}>Disconnect from QuickBooks</button>}
                 </>
               )}
             </div>
