@@ -800,7 +800,14 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
   const needsSub = !subActive && trialEnded;
 
   const openCount = workOrders.filter(w => w.status === "open").length;
-  const signOut = async () => { await supabase.auth.signOut(); };
+  const signOut = async () => {
+    // Try a normal sign-out, then a local-only one; never let a server error leave the user stuck signed in.
+    try { await supabase.auth.signOut(); } catch (_e) {}
+    try { await supabase.auth.signOut({ scope: "local" }); } catch (_e) {}
+    try { Object.keys(localStorage).filter(k => k.startsWith("sb-") && k.includes("auth-token")).forEach(k => localStorage.removeItem(k)); } catch (_e) {}
+    // Reload to a clean landing page (drops any ?view= or recovery hash too)
+    window.location.replace(window.location.pathname);
+  };
   const initials = (user.email[0] || "U").toUpperCase();
 
   return (
