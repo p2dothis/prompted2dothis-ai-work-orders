@@ -3316,7 +3316,7 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
               {!qboConnected ? (
                 c2qbImgOk
                   ? <button onClick={connectQbo} aria-label="Connect to QuickBooks" style={{background:"none",border:"none",padding:0,cursor:"pointer",lineHeight:0}}>
-                      <img src="connect-to-quickbooks.png" alt="Connect to QuickBooks" style={{height:40}} onError={()=>setC2qbImgOk(false)}/>
+                      <img src="connect-to-quickbooks.png" alt="Connect to QuickBooks" width={223} height={36} style={{height:36,width:223}} onError={()=>setC2qbImgOk(false)}/>
                     </button>
                   : <button className="btn btn-primary btn-sm" onClick={connectQbo}>Connect to QuickBooks</button>
               ) : (
