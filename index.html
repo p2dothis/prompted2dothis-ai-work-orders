@@ -1622,13 +1622,9 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
       // Never push a work order that already carries an invoice.
       if (wo.invoice_qbo_id || invoicedNow[wo.id]) { fail.push({ id: wo.id, error: "already invoiced — skipped to prevent a duplicate" }); continue; }
       try {
-        const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-create-invoice`, {
-          method: "POST",
-          headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
-          body: JSON.stringify({ wo, tenant_id: wo.tenant_id }),
-        });
-        const data = await res.json();
-        if (!data.success) throw new Error(data.error || "QuickBooks push failed");
+        const { data, error } = await supabase.functions.invoke("qbo-create-invoice", { body: { wo, tenant_id: wo.tenant_id } });
+        if (error) throw new Error(await fnErrMsg(error));
+        if (!data || !data.success) throw new Error((data && data.error) || "QuickBooks push failed");
         // QuickBooks has the invoice now — lock this WO immediately so it can't be re-pushed.
         setInvoicedNow(s => ({ ...s, [wo.id]: true }));
         // Mark it invoiced locally; retry a couple of times if the write blips.
@@ -1797,13 +1793,9 @@ function InvoicePush({ wo, qboConnected, user, onDone, onBack, mayInvoice }) {
     if (!window.confirm(`Post a LIVE invoice to QuickBooks for ${wo.customer}?\n\nIt will be saved (not sent) so you can review it in QuickBooks before sending.`)) return;
     setErr(""); setPushing(true);
     try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-create-invoice`, {
-        method: "POST",
-        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
-        body: JSON.stringify({ wo, tenant_id: wo.tenant_id }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || "QuickBooks push failed");
+      const { data, error } = await supabase.functions.invoke("qbo-create-invoice", { body: { wo, tenant_id: wo.tenant_id } });
+      if (error) throw new Error(await fnErrMsg(error));
+      if (!data || !data.success) throw new Error((data && data.error) || "QuickBooks push failed");
 
       const { error: uErr } = await supabase.from("work_orders").update({
         status: "invoiced",
@@ -3127,8 +3119,10 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
 
   const connectQbo = async () => {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Please sign in again");
       const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-auth?tenant_id=${tenant.id}`, {
-        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${session.access_token}` },
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
@@ -3152,13 +3146,9 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
   const autoSyncAfterConnect = async () => {
     setSyncing(true);
     try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-list-items`, {
-        method: "POST",
-        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
-        body: JSON.stringify({ tenant_id: tenant.id }),
-      });
-      const data = await res.json();
-      if (data.success) {
+      const { data, error } = await supabase.functions.invoke("qbo-list-items", { body: { tenant_id: tenant.id } });
+      if (error) throw new Error(await fnErrMsg(error));
+      if (data && data.success) {
         alert(`✅ QuickBooks connected!\n\n📦 Auto-synced ${data.count} products from your QuickBooks Online account.`);
         loadItemCount();
       } else {
@@ -3181,13 +3171,9 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
   const syncItems = async () => {
     setSyncing(true);
     try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-list-items`, {
-        method: "POST",
-        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
-        body: JSON.stringify({ tenant_id: tenant.id }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
+      const { data, error } = await supabase.functions.invoke("qbo-list-items", { body: { tenant_id: tenant.id } });
+      if (error) throw new Error(await fnErrMsg(error));
+      if (!data || !data.success) throw new Error((data && data.error) || "Sync failed");
       alert(`✅ Synced ${data.count} products from QuickBooks`);
       loadItemCount();
     } catch (e) {
@@ -3199,13 +3185,9 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
   const syncCustomers = async () => {
     setSyncingCust(true);
     try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-list-customers`, {
-        method: "POST",
-        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
-        body: JSON.stringify({ tenant_id: tenant.id }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
+      const { data, error } = await supabase.functions.invoke("qbo-list-customers", { body: { tenant_id: tenant.id } });
+      if (error) throw new Error(await fnErrMsg(error));
+      if (!data || !data.success) throw new Error((data && data.error) || "Customer sync failed");
       alert(`✅ Synced ${data.count} customers from QuickBooks`);
       loadCustCount();
     } catch (e) {
