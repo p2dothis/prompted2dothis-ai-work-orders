@@ -3121,7 +3121,11 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Please sign in again");
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-auth?tenant_id=${tenant.id}`, {
+      // Tell qbo-auth what folder this app is served from. It travels inside the
+      // signed state so qbo-callback can send the user back to a real HTML page —
+      // the functions gateway serves its own responses as text/plain.
+      const appBase = window.location.origin + window.location.pathname.replace(/[^/]*$/, "");
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-auth?tenant_id=${tenant.id}&app_base=${encodeURIComponent(appBase)}`, {
         headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${session.access_token}` },
       });
       const data = await res.json();

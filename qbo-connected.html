@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>QuickBooks — AI Work Orders</title>
+<style>
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #f6f4ee; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; margin: 0; color: #15212e; }
+  .card { background: #fff; border-radius: 12px; padding: 32px; max-width: 420px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); text-align: center; border: 1px solid #d8d2c4; }
+  .icon { font-size: 56px; margin-bottom: 16px; line-height: 1; }
+  h1 { font-size: 22px; margin: 0 0 10px; }
+  p { color: #6b7480; line-height: 1.5; margin: 0 0 20px; font-size: 14px; }
+  .err { color: #a8341f; font-family: ui-monospace, monospace; background: #fadbd8; padding: 10px; border-radius: 6px; font-size: 12px; word-break: break-word; text-align: left; }
+  .btn { background: #2ca01c; color: #fff; padding: 12px 24px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; font-family: inherit; }
+  .btn:hover { background: #108000; }
+</style>
+</head>
+<body>
+<div class="card" id="card"></div>
+<script>
+  var params = new URLSearchParams(window.location.search);
+  var ok = params.get("ok") === "1";
+  var msg = params.get("msg") || "";
+
+  // Escape anything echoed back from the query string.
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  document.getElementById("card").innerHTML = ok
+    ? '<div class="icon">&#9989;</div>' +
+      "<h1>QuickBooks Connected!</h1>" +
+      "<p>Your QuickBooks account is now linked. You can close this window and return to AI Work Orders.</p>" +
+      '<button class="btn" id="closeBtn">Close window</button>'
+    : '<div class="icon">&#10060;</div>' +
+      "<h1>Connection Failed</h1>" +
+      "<p>We could not complete the QuickBooks connection.</p>" +
+      (msg ? '<div class="err">' + esc(msg) + "</div>" : "") +
+      '<button class="btn" id="closeBtn">Close window</button>';
+
+  document.title = ok ? "QuickBooks Connected" : "QuickBooks Error";
+  document.getElementById("closeBtn").onclick = function () { window.close(); };
+
+  // Tell the app window to re-check its connection status right away.
+  try {
+    if (window.opener) {
+      window.opener.postMessage({ type: "qbo-connected", success: ok }, "*");
+    }
+  } catch (e) {}
+
+  setTimeout(function () { try { window.close(); } catch (e) {} }, 3000);
+</script>
+</body>
+</html>
