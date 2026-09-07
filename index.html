@@ -736,9 +736,18 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
       .order("created_at", { ascending: false });
     setWorkOrders(data || []);
   };
+  // Ask QuickBooks, don't just look for a saved row. An App Store disconnect leaves
+  // the row behind but invalidates the tokens; qbo-status makes a CompanyInfo call
+  // and clears them on 401, so the Connect button comes back. (Intuit review 1.1 / 3.4)
   const loadQbo = async () => {
-    const { data } = await supabase.from("qbo_tokens").select("tenant_id").eq("tenant_id", tenant.id).maybeSingle();
-    setQboConnected(!!data);
+    try {
+      const { data, error } = await supabase.functions.invoke("qbo-status", { body: { tenant_id: tenant.id } });
+      if (error) throw error;
+      if (data && data.transient) return;   // Intuit hiccup — keep current state, don't flip the UI
+      setQboConnected(!!(data && data.connected));
+    } catch (_e) {
+      // network blip: leave the last known state alone
+    }
   };
   const loadSettings = async () => {
     const { data } = await supabase.from("tenant_settings").select("*").eq("tenant_id", tenant.id).maybeSingle();
@@ -3085,8 +3094,18 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
         }
       }
     };
+    // Intuit's OAuth pages can sever window.opener, so the postMessage above may
+    // never fire. Re-check whenever the user comes back to this tab.
+    const recheck = () => onQboChange();
+    const onVis = () => { if (!document.hidden) recheck(); };
     window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("message", handler);
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, []);
 
   const loadItemCount = async () => {
@@ -3115,6 +3134,16 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
       if (!data.success) throw new Error(data.error);
       const w = window.open(data.url, "qbo-oauth", "width=600,height=700");
       if (!w) alert("Please allow popups to connect QuickBooks");
+      // Belt and braces: poll live status so the screen updates on its own even if
+      // the popup's postMessage is lost or the user closes the tab manually.
+      const t0 = Date.now();
+      const iv = setInterval(async () => {
+        if (Date.now() - t0 > 180000) { clearInterval(iv); return; }
+        try {
+          const { data: st } = await supabase.functions.invoke("qbo-status", { body: { tenant_id: tenant.id } });
+          if (st && st.connected) { clearInterval(iv); onQboChange(); }
+        } catch (_e) {}
+      }, 2500);
     } catch (e) {
       alert(`Failed to start QuickBooks connection: ${e.message}`);
     }
