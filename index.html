@@ -1561,7 +1561,9 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
     try {
       setPrintMsg("Sending WO #"+wo.id+" to the printer…");
       const pdf = buildWoPdf(wo, hideRates);
-      const { data, error } = await supabase.functions.invoke("email-print", { body: { to: printerEmail, subject:"Work Order #"+wo.id+" — "+wo.customer, filename:"WO-"+wo.id+".pdf", pdf_base64: pdf } });
+      // The destination lives server-side in tenant_settings.printer_email. Passing
+      // it from here would let any signed-in user mail a PDF anywhere.
+      const { data, error } = await supabase.functions.invoke("email-print", { body: { tenant_id: wo.tenant_id, subject:"Work Order #"+wo.id+" — "+wo.customer, filename:"WO-"+wo.id+".pdf", pdf_base64: pdf } });
       if (error) throw new Error(await fnErrMsg(error));
       if (data && data.error) throw new Error((typeof data.error==="string"?data.error:JSON.stringify(data.error)) + (data.detail ? " — " + (data.detail.message || JSON.stringify(data.detail)) : ""));
       setPrintMsg("✓ Sent WO #"+wo.id+" to "+printerEmail+" — allow a minute for the printer to pick it up");
