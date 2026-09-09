@@ -463,15 +463,18 @@ function App() {
       setView("app");
       return;
     }
-    // Check for pending invite by email
+    // Check for pending invite by email.
+    // Deliberately NOT selecting tenants(*) here: an invited user isn't a member yet,
+    // so row-level security hides the company row and the join comes back empty —
+    // which used to drop them into the setup wizard and create a duplicate company.
+    // Join first, then read the company as a member.
     const { data: invite } = await supabase.from("tenant_invites")
-      .select("*, tenants(*)")
+      .select("id, tenant_id, role, can_invoice")
       .eq("email", authUser.email)
       .is("accepted_at", null)
       .maybeSingle();
-    if (invite?.tenants) {
-      // Accept invite: create tenant_users row, mark invite accepted
-      await supabase.from("tenant_users").insert({
+    if (invite?.tenant_id) {
+      const { error: joinErr } = await supabase.from("tenant_users").insert({
         tenant_id: invite.tenant_id,
         user_id: authUser.id,
         email: authUser.email,
@@ -479,12 +482,17 @@ function App() {
         can_invoice: invite.can_invoice,
         active: true,
       });
-      await supabase.from("tenant_invites").update({ accepted_at: new Date().toISOString() }).eq("id", invite.id);
-      setTenant(invite.tenants);
-      setUserRole(invite.role);
-      setCanInvoice(!!invite.can_invoice);
-      setView("app");
-      return;
+      if (!joinErr) {
+        await supabase.from("tenant_invites").update({ accepted_at: new Date().toISOString() }).eq("id", invite.id);
+        const { data: joinedTenant } = await supabase.from("tenants").select("*").eq("id", invite.tenant_id).maybeSingle();
+        if (joinedTenant) {
+          setTenant(joinedTenant);
+          setUserRole(invite.role);
+          setCanInvoice(!!invite.can_invoice);
+          setView("app");
+          return;
+        }
+      }
     }
     // No tenant and no invite → setup wizard (new company)
     setView("wizard");
