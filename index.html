@@ -912,7 +912,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
         )}
 
         {step === 4 && isAdmin && <PriceBook tenant={tenant} />}
-        {step === 6 && <Dashboard workOrders={workOrders} tenant={tenant} onOpenJobs={()=>setStep(2)} blanketPOs={blanketPOs} onBlanketsChange={loadBlankets} />}
+        {step === 6 && <Dashboard workOrders={workOrders} tenant={tenant} hideRates={hideRates} onOpenJobs={()=>setStep(2)} blanketPOs={blanketPOs} onBlanketsChange={loadBlankets} />}
         {step === 7 && isAdmin && <ImportCenter tenant={tenant} onDone={()=>setStep(4)} />}
         {step === 8 && isAdmin && <Automations tenant={tenant} fuelAuto={fuelAuto} onChange={loadAutomation} />}
 
@@ -2251,7 +2251,7 @@ function BlanketOrders({ blanketPOs, workOrders, tenant, onChange }) {
   );
 }
 
-function Dashboard({ workOrders, tenant, onOpenJobs, blanketPOs, onBlanketsChange }) {
+function Dashboard({ workOrders, tenant, hideRates, onOpenJobs, blanketPOs, onBlanketsChange }) {
   const qtyOf = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
   const woTotal = (wo) => (wo.lines||[]).reduce((s,l)=> s + qtyOf(l)*(Number(l.rate)||0), 0);
   const now = new Date();
@@ -2286,24 +2286,27 @@ function Dashboard({ workOrders, tenant, onOpenJobs, blanketPOs, onBlanketsChang
         <div className="dash-card dash-a" onClick={onOpenJobs} style={{cursor:"pointer"}}>
           <div className="lbl">Open jobs</div>
           <div className="val">{open.length}</div>
-          <div className="sub">{fmt$(openVal)} awaiting invoice</div>
+          <div className="sub">{hideRates ? "awaiting invoice" : `${fmt$(openVal)} awaiting invoice`}</div>
         </div>
         <div className="dash-card dash-b">
           <div className="lbl">Invoiced this month</div>
-          <div className="val">{fmt$(monthRev)}</div>
+          <div className="val">{hideRates ? invThisMonth.length : fmt$(monthRev)}</div>
           <div className="sub">{invThisMonth.length} invoice{invThisMonth.length!==1?"s":""}</div>
         </div>
         <div className="dash-card dash-c">
           <div className="lbl">All-time invoiced</div>
-          <div className="val">{fmt$(allRev)}</div>
+          <div className="val">{hideRates ? invoiced.length : fmt$(allRev)}</div>
           <div className="sub">{invoiced.length} total</div>
         </div>
+        {!hideRates && (
         <div className="dash-card dash-d">
           <div className="lbl">Avg job value</div>
           <div className="val">{fmt$(invoiced.length ? allRev/invoiced.length : 0)}</div>
           <div className="sub">per invoice</div>
         </div>
+        )}
       </div>
+      {!hideRates && (
       <div className="dash-section">
         <h3>Revenue — last 6 months</h3>
         <div className="dash-bar">
@@ -2316,7 +2319,9 @@ function Dashboard({ workOrders, tenant, onOpenJobs, blanketPOs, onBlanketsChang
           ))}
         </div>
       </div>
-      <BlanketOrders blanketPOs={blanketPOs} workOrders={workOrders} tenant={tenant} onChange={onBlanketsChange} />
+      )}
+      {!hideRates && <BlanketOrders blanketPOs={blanketPOs} workOrders={workOrders} tenant={tenant} onChange={onBlanketsChange} />}
+      {!hideRates && (
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12}}>
         <div className="dash-section">
           <h3>Top technicians</h3>
@@ -2329,6 +2334,7 @@ function Dashboard({ workOrders, tenant, onOpenJobs, blanketPOs, onBlanketsChang
           {topCust.map(([c,x]) => <div key={c} className="dash-row"><span>{c}</span><span><b>{fmt$(x.v)}</b> · {x.n}</span></div>)}
         </div>
       </div>
+      )}
       <div className="dash-section">
         <h3>Recent activity</h3>
         {recent.length===0 && <div style={{fontSize:13,color:"var(--muted)"}}>No work orders yet — create your first one.</div>}
@@ -2336,7 +2342,7 @@ function Dashboard({ workOrders, tenant, onOpenJobs, blanketPOs, onBlanketsChang
           <div key={w.id} className="dash-row">
             <span>WO #{w.id} · {w.customer||"—"}</span>
             <span style={{color: w.status==="invoiced" ? "var(--inv)" : "var(--wip)", fontWeight:600, whiteSpace:"nowrap"}}>
-              {w.status==="invoiced" ? `Invoiced${w.invoice_no?" #"+w.invoice_no:""}` : "Open"} · {fmt$(woTotal(w))}
+              {w.status==="invoiced" ? `Invoiced${w.invoice_no?" #"+w.invoice_no:""}` : "Open"}{hideRates ? "" : ` · ${fmt$(woTotal(w))}`}
             </span>
           </div>
         ))}
