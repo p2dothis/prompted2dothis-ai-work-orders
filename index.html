@@ -895,6 +895,8 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
             onReload={loadWOs}
             mayInvoice={mayInvoice}
             canCreate={canCreate}
+            isAdmin={isAdmin}
+            tenantId={tenant.id}
             printerEmail={settings.printer_email || ""}
             onNewDelivery={(wo) => { setTemplateWO(wo); setStep(1); }}
             blanketPOs={blanketPOs}
@@ -912,7 +914,8 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
         )}
 
         {step === 4 && isAdmin && <PriceBook tenant={tenant} />}
-        {step === 6 && <Dashboard workOrders={workOrders} tenant={tenant} hideRates={hideRates} onOpenJobs={()=>setStep(2)} blanketPOs={blanketPOs} onBlanketsChange={loadBlankets} />}
+        {step === 6 && <Dashboard workOrders={workOrders} tenant={tenant} hideRates={hideRates} onOpenJobs={()=>setStep(2)} blanketPOs={blanketPOs} onBlanketsChange={loadBlankets}
+          isAdmin={isAdmin} qboConnected={qboConnected} onOpenSettings={()=>setShowSettings(true)} onCreateWO={()=>setStep(1)} onReload={loadWOs} />}
         {step === 7 && isAdmin && <ImportCenter tenant={tenant} onDone={()=>setStep(4)} />}
         {step === 8 && isAdmin && <Automations tenant={tenant} fuelAuto={fuelAuto} onChange={loadAutomation} />}
 
@@ -1010,20 +1013,23 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
   const [priceLevels, setPriceLevels] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [customerId, setCustomerId] = useState(null);
+  const [customerPos, setCustomerPos] = useState([]);
   const [tierName, setTierName] = useState("");
   const [custOpen, setCustOpen] = useState(false);
   const [activeItem, setActiveItem] = useState(-1);
 
   useEffect(() => {
     (async () => {
-      const [cu, pl, sc, qi, cs] = await Promise.all([
+      const [cu, pl, sc, qi, cs, cpo] = await Promise.all([
         supabase.from("customers").select("id,display_name,primary_price_level_id,aliases").eq("tenant_id", tenant.id).eq("active", true),
         supabase.from("price_levels").select("id,name,rank").eq("tenant_id", tenant.id).order("rank"),
         supabase.from("service_catalog").select("id,name,sku,default_rate").eq("tenant_id", tenant.id),
         supabase.from("qbo_items").select("id,name,sku,price").eq("tenant_id", tenant.id),
         supabase.from("custom_skus").select("id,name,sku,price").eq("tenant_id", tenant.id),
+        supabase.from("customer_pos").select("*").eq("tenant_id", tenant.id).eq("active", true).order("created_at", { ascending: false }),
       ]);
       setCustomers(cu.data || []);
+      setCustomerPos(cpo.data || []);
       setPriceLevels(pl.data || []);
       if (seed && seed.customer) {
         const ec = (cu.data||[]).find(x => (x.display_name||"").toLowerCase() === seed.customer.trim().toLowerCase());
@@ -1184,6 +1190,10 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
         onBlanketsChange && onBlanketsChange();
       } catch (_e) { /* tracking is a convenience; never block the work order */ }
     }
+    rememberPo(r.poPick, cid, name, built, {
+      doc_date: r.p.doc_date || null, is_blanket: !!r.p.is_blanket,
+      source: "upload", file_name: r.fileName, notes: r.p.notes || null,
+    });
     setDocReview(null);
   };
 
@@ -1215,6 +1225,60 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
       desc: `Fuel surcharge — diesel ${fmt$(fuelAuto.current_diesel||0)}${fuelAuto.diesel_period ? " (wk of "+fuelAuto.diesel_period+")" : ""}`,
       qty, rate, item_source: null, item_id: null, base_rate: rate, auto: "fuel_surcharge",
     }];
+  };
+
+  // Purchase orders already on file for the customer currently selected.
+  const posForCustomer = useMemo(() => {
+    const nm = (customer||"").trim().toLowerCase();
+    if (!customerId && !nm) return [];
+    return customerPos.filter(p =>
+      (customerId && p.customer_id === customerId) ||
+      (!p.customer_id && (p.customer_name||"").trim().toLowerCase() === nm)
+    );
+  }, [customerPos, customerId, customer]);
+
+  // Recall a saved PO: fills the PO number and its line items, quantities left
+  // blank so this delivery's amounts get entered fresh.
+  const recallPo = async (poId) => {
+    const p = customerPos.find(x => x.id === poId);
+    if (!p) return;
+    setPoNumber(p.po_number);
+    const src = Array.isArray(p.lines) ? p.lines : [];
+    if (src.length) {
+      const built = [];
+      for (const l of src) {
+        let rate = Number(l.rate)||0;
+        if (customerId && l.item_source && l.item_id) {
+          rate = await resolveRate(customerId, l.item_source, l.item_id, l.base_rate!=null?l.base_rate:rate);
+        }
+        built.push({ item: l.item||"", desc: l.desc||"", qty: "", rate,
+                     item_source: l.item_source||null, item_id: l.item_id||null,
+                     base_rate: l.base_rate!=null?l.base_rate:undefined });
+      }
+      setLines(built);
+    }
+    supabase.from("customer_pos").update({ last_used_at: new Date().toISOString() }).eq("id", p.id).then(()=>{});
+  };
+
+  // Remember a PO against this customer so it can be recalled next time.
+  const rememberPo = async (poNum, cid, custName, woLines, extra) => {
+    const po = String(poNum||"").trim();
+    if (!po || po.toUpperCase() === "N/A") return;
+    const keep = (woLines||[]).filter(l => !l.auto && (l.item||"").trim()).map(l => ({
+      item: l.item, desc: l.desc||"", rate: Number(l.rate)||0,
+      item_source: l.item_source||null, item_id: l.item_id||null,
+      base_rate: l.base_rate!=null?l.base_rate:undefined,
+    }));
+    if (!keep.length) return;
+    try {
+      await supabase.from("customer_pos").upsert({
+        tenant_id: tenant.id, customer_id: cid || null,
+        customer_name: (custName||"").trim(), po_number: po,
+        lines: keep, active: true, ...(extra||{}),
+      }, { onConflict: "tenant_id,customer_id,po_number" });
+      const { data } = await supabase.from("customer_pos").select("*").eq("tenant_id", tenant.id).eq("active", true).order("created_at", { ascending: false });
+      setCustomerPos(data || []);
+    } catch (_e) { /* remembering is a convenience; never block the work order */ }
   };
 
   const qtyOf = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
@@ -1255,6 +1319,7 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
       if (numErr) throw numErr;
       const woId = String(num);
 
+      rememberPo(poNumber, customerId, customer, newLines, { source: "work_order" });
       const { error } = await supabase.from("work_orders").insert({
         id: woId,
         tenant_id: tenant.id,
@@ -1418,6 +1483,18 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
         </div>
         <div className="fg">
           <label className="label">Customer PO #</label>
+          {posForCustomer.length > 0 && (
+            <select className="input" value="" onChange={e=>{ if(e.target.value) recallPo(e.target.value); }}
+              style={{marginBottom:6}} title="Reuse a purchase order already on file for this customer">
+              <option value="">📋 Recall a PO on file ({posForCustomer.length})…</option>
+              {posForCustomer.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.po_number}{p.is_blanket ? " · blanket" : ""} · {(p.lines||[]).length} line{(p.lines||[]).length===1?"":"s"}
+                  {p.doc_date ? " · " + p.doc_date : ""}
+                </option>
+              ))}
+            </select>
+          )}
           <div style={{display:"flex",gap:6}}>
             <input className="input" value={poNumber} onChange={e=>setPoNumber(e.target.value)} placeholder="PO number — or N/A if none" style={{flex:1}}/>
             <button type="button" className="btn btn-outline btn-sm" onClick={()=>setPoNumber(poNumber==="N/A" ? "" : "N/A")} style={{whiteSpace:"nowrap"}} title="Mark that no PO is used">{poNumber==="N/A" ? "Clear" : "N/A"}</button>
@@ -1555,11 +1632,33 @@ function buildWoPdf(wo, hideRates){
 }
 
 // ─── STEP 2: OPEN WO LIST ────────────────────────────────────────────────────
-function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate, printerEmail, onNewDelivery, blanketPOs }) {
+function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate, isAdmin, tenantId, printerEmail, onNewDelivery, blanketPOs }) {
   const blanketTag = (wo) => { const bp = wo.po_number ? findBlanket(blanketPOs, wo.po_number) : null; if (!bp) return null; const st = blanketStats(bp, workOrders); if (st.remU == null) return null; return <> · <span style={{color: st.remU<=0 ? "var(--red)" : "var(--inv)", fontWeight:600}}>{Math.round(st.remU).toLocaleString()} {bp.unit} left on PO</span></>; };
   const newDeliveryLabel = (wo) => (wo.po_number && wo.po_number !== "N/A") ? "🔁 New delivery" : "⧉ Duplicate";
   const open = workOrders.filter(w => w.status === "open");
   const recent = workOrders.filter(w => w.status === "invoiced").slice(0, 5);
+  const voided = workOrders.filter(w => w.status === "voided");
+  const [showVoided, setShowVoided] = useState(false);
+  const [voidBusy, setVoidBusy] = useState("");
+
+  // Void clears a mistaken work order off the open list without deleting it or
+  // leaving a hole in the number series. Owner/admin only, enforced server-side.
+  const setVoided = async (wo, makeVoid) => {
+    if (makeVoid && !window.confirm(`Void work order #${wo.id} for ${wo.customer}?\n\nIt comes off the open list but is kept on record, and you can restore it later.`)) return;
+    setVoidBusy(wo.id);
+    try {
+      const reason = makeVoid ? (window.prompt("Reason (optional):", "") || "") : "";
+      const { error } = await supabase.rpc("fn_void_work_order", {
+        p_tenant_id: tenantId, p_id: wo.id, p_void: makeVoid, p_reason: reason,
+      });
+      if (error) throw new Error(error.message);
+      onReload && onReload();
+    } catch (e) {
+      setPrintMsg("Could not " + (makeVoid ? "void" : "restore") + " WO #" + wo.id + ": " + e.message);
+      setTimeout(()=>setPrintMsg(""), 8000);
+    }
+    setVoidBusy("");
+  };
 
   const woTotal = (wo) => (wo.lines || []).reduce((s,l) => s + (Number(l.qty)||0)*(Number(l.rate)||0), 0);
 
@@ -1742,11 +1841,51 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
                   Create Invoice
                 </button>
                 )}
+                {isAdmin && (
+                <button className="btn btn-outline btn-sm" disabled={voidBusy===wo.id}
+                  onClick={()=>setVoided(wo, true)}
+                  style={{color:"var(--red)",borderColor:"var(--red)"}}
+                  title="Created by mistake? Take it off the open list without deleting it.">
+                  {voidBusy===wo.id ? "Voiding…" : "⊘ Void"}
+                </button>
+                )}
               </div>
             </div>
           ))
         )}
       </div>
+
+      {isAdmin && voided.length > 0 && (
+        <div className="sheet">
+          <div className="sheet-h">
+            <div>
+              <div className="sheet-title" style={{fontSize:15}}>Voided</div>
+              <div className="sheet-meta">{voided.length} kept on record, off the open list</div>
+            </div>
+            <button className="btn-text" onClick={()=>setShowVoided(v=>!v)}>{showVoided ? "Hide" : "Show"}</button>
+          </div>
+          {showVoided && voided.map(wo => (
+            <div key={wo.id} className="wo-card" style={{borderLeftColor:"var(--muted)",opacity:0.75}}>
+              <div className="wo-meta-l">
+                <div className="wo-id">WO #{wo.id} · {wo.date}</div>
+                <div className="wo-customer">{wo.customer}</div>
+                <div className="wo-info">
+                  Voided{wo.voided_by ? ` by ${wo.voided_by}` : ""}{wo.voided_at ? ` on ${new Date(wo.voided_at).toLocaleDateString()}` : ""}
+                  {wo.void_reason ? ` · ${wo.void_reason}` : ""}
+                </div>
+              </div>
+              <div className="wo-meta-r">
+                <span className="wo-pill" style={{background:"#eee9de",color:"var(--muted)"}}>Voided</span>
+              </div>
+              <div className="wo-actions">
+                <button className="btn btn-outline btn-sm" disabled={voidBusy===wo.id} onClick={()=>setVoided(wo, false)}>
+                  {voidBusy===wo.id ? "Restoring…" : "↩ Restore to open"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {recent.length > 0 && (
         <div className="sheet">
@@ -2251,7 +2390,127 @@ function BlanketOrders({ blanketPOs, workOrders, tenant, onChange }) {
   );
 }
 
-function Dashboard({ workOrders, tenant, hideRates, onOpenJobs, blanketPOs, onBlanketsChange }) {
+// First-run guide. Reads the company's real data, so each step ticks itself off
+// as the owner completes it and the whole panel retires once they're set up.
+function SetupGuide({ tenant, qboConnected, workOrders, onOpenSettings, onCreateWO, onReload }) {
+  const [counts, setCounts] = useState(null);
+  const [sampleBusy, setSampleBusy] = useState(false);
+  const [sampleMsg, setSampleMsg] = useState("");
+  const [tick, setTick] = useState(0);
+  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("setupdone:"+tenant.id)==="1"; } catch(_e){ return false; } });
+
+  useEffect(() => {
+    (async () => {
+      const [it, cu, tu, sa] = await Promise.all([
+        supabase.from("qbo_items").select("id", { count:"exact", head:true }).eq("tenant_id", tenant.id),
+        supabase.from("customers").select("id", { count:"exact", head:true }).eq("tenant_id", tenant.id),
+        supabase.from("tenant_users").select("id", { count:"exact", head:true }).eq("tenant_id", tenant.id).eq("active", true),
+        supabase.from("customers").select("id", { count:"exact", head:true }).eq("tenant_id", tenant.id).eq("is_sample", true),
+      ]);
+      setCounts({ items: it.count||0, customers: cu.count||0, team: tu.count||0, samples: sa.count||0 });
+    })();
+  }, [tenant.id, qboConnected, workOrders.length, tick]);
+
+  // Sample company: fictional customers and products so a trial can try the whole
+  // flow before connecting QuickBooks. Cleared automatically on subscribing.
+  const loadSamples = async () => {
+    setSampleBusy(true); setSampleMsg("");
+    const { error } = await supabase.rpc("fn_load_sample_data", { p_tenant_id: tenant.id });
+    setSampleBusy(false);
+    if (error) { setSampleMsg("Could not load the sample company: " + error.message); return; }
+    setSampleMsg("Sample customers and products added — try writing a work order.");
+    setTick(t=>t+1); onReload && onReload();
+  };
+  const clearSamples = async () => {
+    if (!window.confirm("Remove the sample company?\n\nThe fictional customers, products and any work orders made with them are deleted. Your real data is untouched.")) return;
+    setSampleBusy(true); setSampleMsg("");
+    const { error } = await supabase.rpc("fn_clear_sample_data_as_admin", { p_tenant_id: tenant.id });
+    setSampleBusy(false);
+    if (error) { setSampleMsg("Could not remove it: " + error.message); return; }
+    setSampleMsg("Sample company removed.");
+    setTick(t=>t+1); onReload && onReload();
+  };
+
+  if (hidden || !counts) return null;
+
+  const steps = [
+    { n:1, c:"#2563eb", title:"Connect QuickBooks", why:"Links your company so invoices land in your books.",
+      done: qboConnected, action:"Connect", go:onOpenSettings },
+    { n:2, c:"#16a34a", title:"Bring in your products", why:"Your QuickBooks items become the things you can put on a work order.",
+      done: counts.items>0, action:"Sync products", go:onOpenSettings, needs:qboConnected },
+    { n:3, c:"#ca8a04", title:"Bring in your customers", why:"So you pick a name instead of typing it every time.",
+      done: counts.customers>0, action:"Sync customers", go:onOpenSettings, needs:qboConnected },
+    { n:4, c:"#ea580c", title:"Add your crew", why:"Techs create work orders in the field. Optional — you can do this later.",
+      done: counts.team>1, action:"Invite", go:onOpenSettings, optional:true },
+    { n:5, c:"#7c3aed", title:"Write your first work order", why:"Pick a customer, add lines, save.",
+      done: workOrders.length>0, action:"Create one", go:onCreateWO },
+    { n:6, c:"#0f766e", title:"Send it to QuickBooks", why:"One tap turns the work order into a draft invoice.",
+      done: workOrders.some(w=>w.status==="invoiced"), action:"Open work orders", go:onCreateWO },
+  ];
+  const doneCount = steps.filter(s=>s.done).length;
+  const allDone = steps.every(s=>s.done || s.optional);
+
+  const dismiss = () => { setHidden(true); try { localStorage.setItem("setupdone:"+tenant.id,"1"); } catch(_e){} };
+
+  return (
+    <div className="dash-section" style={{borderLeft:"6px solid var(--brass)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
+        <h3 style={{margin:0}}>{allDone ? "You're all set 🎉" : "Get set up"}</h3>
+        <div style={{fontSize:12,color:"var(--muted)"}}>
+          {doneCount} of {steps.length} done
+          {allDone && <button className="btn-text" onClick={dismiss} style={{marginLeft:8}}>Hide this</button>}
+        </div>
+      </div>
+      <div style={{height:8,background:"#eee9de",borderRadius:4,margin:"10px 0 14px",overflow:"hidden"}}>
+        <div style={{width:(doneCount/steps.length*100)+"%",height:"100%",background:"var(--brass)",transition:"width .3s"}}></div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:10}}>
+        {steps.map(s => (
+          <div key={s.n} style={{border:"1px solid "+(s.done?"#cfe0d5":"var(--line)"),borderLeft:"5px solid "+(s.done?"var(--go)":s.c),
+              borderRadius:8,padding:"12px 14px",background:s.done?"#f5faf6":"#fff",opacity:(s.needs===false?0.55:1)}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+              <span style={{width:22,height:22,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",
+                justifyContent:"center",fontSize:12,fontWeight:700,color:"#fff",background:s.done?"var(--go)":s.c}}>
+                {s.done ? "✓" : s.n}
+              </span>
+              <span style={{fontWeight:700,fontSize:14}}>{s.title}</span>
+            </div>
+            <div style={{fontSize:12,color:"var(--muted)",lineHeight:1.45,marginBottom:s.done?0:10}}>
+              {s.why}{s.optional && !s.done ? " (optional)" : ""}
+            </div>
+            {!s.done && (
+              <button className="btn btn-outline btn-sm" onClick={s.go} disabled={s.needs===false}
+                title={s.needs===false ? "Connect QuickBooks first" : ""}>
+                {s.action} →
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div style={{marginTop:12,paddingTop:12,borderTop:"1px dashed var(--line)",fontSize:13}}>
+        {counts.samples > 0 ? (
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span>🧪 <b>Sample company loaded.</b> Fictional customers and products, marked SAMPLE. They disappear on their own when you subscribe.</span>
+            <button className="btn btn-outline btn-sm" onClick={clearSamples} disabled={sampleBusy}>
+              {sampleBusy ? "Removing…" : "Remove now"}
+            </button>
+          </div>
+        ) : (
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{color:"var(--muted)"}}>Want to see it work before connecting anything? Load a sample company and write a practice work order.</span>
+            <button className="btn btn-outline btn-sm" onClick={loadSamples} disabled={sampleBusy}>
+              {sampleBusy ? "Loading…" : "🧪 Try with sample data"}
+            </button>
+          </div>
+        )}
+        {sampleMsg && <div style={{marginTop:8,color:"var(--inv)"}}>{sampleMsg}</div>}
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ workOrders, tenant, hideRates, onOpenJobs, blanketPOs, onBlanketsChange, isAdmin, qboConnected, onOpenSettings, onCreateWO, onReload }) {
   const qtyOf = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
   const woTotal = (wo) => (wo.lines||[]).reduce((s,l)=> s + qtyOf(l)*(Number(l.rate)||0), 0);
   const now = new Date();
@@ -2282,6 +2541,8 @@ function Dashboard({ workOrders, tenant, hideRates, onOpenJobs, blanketPOs, onBl
           <div className="sheet-meta">{tenant.name} · live snapshot of your business</div>
         </div>
       </div>
+      {isAdmin && <SetupGuide tenant={tenant} qboConnected={qboConnected} workOrders={workOrders}
+        onOpenSettings={onOpenSettings} onCreateWO={onCreateWO} onReload={onReload} />}
       <div className="dash-grid">
         <div className="dash-card dash-a" onClick={onOpenJobs} style={{cursor:"pointer"}}>
           <div className="lbl">Open jobs</div>
