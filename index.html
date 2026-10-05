@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
   <link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -737,7 +739,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
     setWorkOrders(data || []);
   };
   const loadQbo = async () => {
-    const { data } = await supabase.from("qbo_tokens").select("tenant_id").eq("tenant_id", tenant.id).maybeSingle();
+    const { data } = await supabase.from("qbo_connections").select("tenant_id").eq("tenant_id", tenant.id).maybeSingle();
     setQboConnected(!!data);
   };
   const loadSettings = async () => {
@@ -3108,8 +3110,14 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
 
   const connectQbo = async () => {
     try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-auth?tenant_id=${tenant.id}`, {
-        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
+      // qbo-auth only starts a connection for a signed-in member of this company, so send the
+      // user's session token (not the public key) and tell it where the app lives so the
+      // callback can redirect to our qbo-connected.html page.
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Please sign in again");
+      const appBase = encodeURIComponent(APP_URL());
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-auth?tenant_id=${tenant.id}&app_base=${appBase}`, {
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${session.access_token}` },
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
