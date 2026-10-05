@@ -463,18 +463,15 @@ function App() {
       setView("app");
       return;
     }
-    // Check for pending invite by email.
-    // Deliberately NOT selecting tenants(*) here: an invited user isn't a member yet,
-    // so row-level security hides the company row and the join comes back empty —
-    // which used to drop them into the setup wizard and create a duplicate company.
-    // Join first, then read the company as a member.
+    // Check for pending invite by email
     const { data: invite } = await supabase.from("tenant_invites")
-      .select("id, tenant_id, role, can_invoice")
+      .select("*, tenants(*)")
       .eq("email", authUser.email)
       .is("accepted_at", null)
       .maybeSingle();
-    if (invite?.tenant_id) {
-      const { error: joinErr } = await supabase.from("tenant_users").insert({
+    if (invite?.tenants) {
+      // Accept invite: create tenant_users row, mark invite accepted
+      await supabase.from("tenant_users").insert({
         tenant_id: invite.tenant_id,
         user_id: authUser.id,
         email: authUser.email,
@@ -482,17 +479,12 @@ function App() {
         can_invoice: invite.can_invoice,
         active: true,
       });
-      if (!joinErr) {
-        await supabase.from("tenant_invites").update({ accepted_at: new Date().toISOString() }).eq("id", invite.id);
-        const { data: joinedTenant } = await supabase.from("tenants").select("*").eq("id", invite.tenant_id).maybeSingle();
-        if (joinedTenant) {
-          setTenant(joinedTenant);
-          setUserRole(invite.role);
-          setCanInvoice(!!invite.can_invoice);
-          setView("app");
-          return;
-        }
-      }
+      await supabase.from("tenant_invites").update({ accepted_at: new Date().toISOString() }).eq("id", invite.id);
+      setTenant(invite.tenants);
+      setUserRole(invite.role);
+      setCanInvoice(!!invite.can_invoice);
+      setView("app");
+      return;
     }
     // No tenant and no invite → setup wizard (new company)
     setView("wizard");
@@ -643,7 +635,7 @@ function SignUp({ onSwitchSignin, onBack }) {
         <div className="fg"><label className="label">Email</label>
           <input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoFocus/></div>
         <div className="fg"><label className="label">Password (min 6 chars)</label>
-          <input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={6}/></div>
+          <input className="input" type="password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={8} placeholder="At least 8 characters"/></div>
         <button type="submit" className="btn btn-primary btn-full" disabled={loading}>{loading?"Creating account…":"Create Account & Start Trial"}</button>
       </form>
       <div className="auth-foot">Have an account? <button className="btn-link" onClick={onSwitchSignin}>Sign in</button></div>
@@ -744,18 +736,9 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
       .order("created_at", { ascending: false });
     setWorkOrders(data || []);
   };
-  // Ask QuickBooks, don't just look for a saved row. An App Store disconnect leaves
-  // the row behind but invalidates the tokens; qbo-status makes a CompanyInfo call
-  // and clears them on 401, so the Connect button comes back. (Intuit review 1.1 / 3.4)
   const loadQbo = async () => {
-    try {
-      const { data, error } = await supabase.functions.invoke("qbo-status", { body: { tenant_id: tenant.id } });
-      if (error) throw error;
-      if (data && data.transient) return;   // Intuit hiccup — keep current state, don't flip the UI
-      setQboConnected(!!(data && data.connected));
-    } catch (_e) {
-      // network blip: leave the last known state alone
-    }
+    const { data } = await supabase.from("qbo_tokens").select("tenant_id").eq("tenant_id", tenant.id).maybeSingle();
+    setQboConnected(!!data);
   };
   const loadSettings = async () => {
     const { data } = await supabase.from("tenant_settings").select("*").eq("tenant_id", tenant.id).maybeSingle();
@@ -895,8 +878,6 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
             onReload={loadWOs}
             mayInvoice={mayInvoice}
             canCreate={canCreate}
-            isAdmin={isAdmin}
-            tenantId={tenant.id}
             printerEmail={settings.printer_email || ""}
             onNewDelivery={(wo) => { setTemplateWO(wo); setStep(1); }}
             blanketPOs={blanketPOs}
@@ -914,8 +895,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
         )}
 
         {step === 4 && isAdmin && <PriceBook tenant={tenant} />}
-        {step === 6 && <Dashboard workOrders={workOrders} tenant={tenant} hideRates={hideRates} onOpenJobs={()=>setStep(2)} blanketPOs={blanketPOs} onBlanketsChange={loadBlankets}
-          isAdmin={isAdmin} qboConnected={qboConnected} onOpenSettings={()=>setShowSettings(true)} onCreateWO={()=>setStep(1)} onReload={loadWOs} />}
+        {step === 6 && <Dashboard workOrders={workOrders} tenant={tenant} onOpenJobs={()=>setStep(2)} blanketPOs={blanketPOs} onBlanketsChange={loadBlankets} />}
         {step === 7 && isAdmin && <ImportCenter tenant={tenant} onDone={()=>setStep(4)} />}
         {step === 8 && isAdmin && <Automations tenant={tenant} fuelAuto={fuelAuto} onChange={loadAutomation} />}
 
@@ -1013,23 +993,20 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
   const [priceLevels, setPriceLevels] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [customerId, setCustomerId] = useState(null);
-  const [customerPos, setCustomerPos] = useState([]);
   const [tierName, setTierName] = useState("");
   const [custOpen, setCustOpen] = useState(false);
   const [activeItem, setActiveItem] = useState(-1);
 
   useEffect(() => {
     (async () => {
-      const [cu, pl, sc, qi, cs, cpo] = await Promise.all([
+      const [cu, pl, sc, qi, cs] = await Promise.all([
         supabase.from("customers").select("id,display_name,primary_price_level_id,aliases").eq("tenant_id", tenant.id).eq("active", true),
         supabase.from("price_levels").select("id,name,rank").eq("tenant_id", tenant.id).order("rank"),
         supabase.from("service_catalog").select("id,name,sku,default_rate").eq("tenant_id", tenant.id),
         supabase.from("qbo_items").select("id,name,sku,price").eq("tenant_id", tenant.id),
         supabase.from("custom_skus").select("id,name,sku,price").eq("tenant_id", tenant.id),
-        supabase.from("customer_pos").select("*").eq("tenant_id", tenant.id).eq("active", true).order("created_at", { ascending: false }),
       ]);
       setCustomers(cu.data || []);
-      setCustomerPos(cpo.data || []);
       setPriceLevels(pl.data || []);
       if (seed && seed.customer) {
         const ec = (cu.data||[]).find(x => (x.display_name||"").toLowerCase() === seed.customer.trim().toLowerCase());
@@ -1190,10 +1167,6 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
         onBlanketsChange && onBlanketsChange();
       } catch (_e) { /* tracking is a convenience; never block the work order */ }
     }
-    rememberPo(r.poPick, cid, name, built, {
-      doc_date: r.p.doc_date || null, is_blanket: !!r.p.is_blanket,
-      source: "upload", file_name: r.fileName, notes: r.p.notes || null,
-    });
     setDocReview(null);
   };
 
@@ -1225,60 +1198,6 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
       desc: `Fuel surcharge — diesel ${fmt$(fuelAuto.current_diesel||0)}${fuelAuto.diesel_period ? " (wk of "+fuelAuto.diesel_period+")" : ""}`,
       qty, rate, item_source: null, item_id: null, base_rate: rate, auto: "fuel_surcharge",
     }];
-  };
-
-  // Purchase orders already on file for the customer currently selected.
-  const posForCustomer = useMemo(() => {
-    const nm = (customer||"").trim().toLowerCase();
-    if (!customerId && !nm) return [];
-    return customerPos.filter(p =>
-      (customerId && p.customer_id === customerId) ||
-      (!p.customer_id && (p.customer_name||"").trim().toLowerCase() === nm)
-    );
-  }, [customerPos, customerId, customer]);
-
-  // Recall a saved PO: fills the PO number and its line items, quantities left
-  // blank so this delivery's amounts get entered fresh.
-  const recallPo = async (poId) => {
-    const p = customerPos.find(x => x.id === poId);
-    if (!p) return;
-    setPoNumber(p.po_number);
-    const src = Array.isArray(p.lines) ? p.lines : [];
-    if (src.length) {
-      const built = [];
-      for (const l of src) {
-        let rate = Number(l.rate)||0;
-        if (customerId && l.item_source && l.item_id) {
-          rate = await resolveRate(customerId, l.item_source, l.item_id, l.base_rate!=null?l.base_rate:rate);
-        }
-        built.push({ item: l.item||"", desc: l.desc||"", qty: "", rate,
-                     item_source: l.item_source||null, item_id: l.item_id||null,
-                     base_rate: l.base_rate!=null?l.base_rate:undefined });
-      }
-      setLines(built);
-    }
-    supabase.from("customer_pos").update({ last_used_at: new Date().toISOString() }).eq("id", p.id).then(()=>{});
-  };
-
-  // Remember a PO against this customer so it can be recalled next time.
-  const rememberPo = async (poNum, cid, custName, woLines, extra) => {
-    const po = String(poNum||"").trim();
-    if (!po || po.toUpperCase() === "N/A") return;
-    const keep = (woLines||[]).filter(l => !l.auto && (l.item||"").trim()).map(l => ({
-      item: l.item, desc: l.desc||"", rate: Number(l.rate)||0,
-      item_source: l.item_source||null, item_id: l.item_id||null,
-      base_rate: l.base_rate!=null?l.base_rate:undefined,
-    }));
-    if (!keep.length) return;
-    try {
-      await supabase.from("customer_pos").upsert({
-        tenant_id: tenant.id, customer_id: cid || null,
-        customer_name: (custName||"").trim(), po_number: po,
-        lines: keep, active: true, ...(extra||{}),
-      }, { onConflict: "tenant_id,customer_id,po_number" });
-      const { data } = await supabase.from("customer_pos").select("*").eq("tenant_id", tenant.id).eq("active", true).order("created_at", { ascending: false });
-      setCustomerPos(data || []);
-    } catch (_e) { /* remembering is a convenience; never block the work order */ }
   };
 
   const qtyOf = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
@@ -1319,7 +1238,6 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
       if (numErr) throw numErr;
       const woId = String(num);
 
-      rememberPo(poNumber, customerId, customer, newLines, { source: "work_order" });
       const { error } = await supabase.from("work_orders").insert({
         id: woId,
         tenant_id: tenant.id,
@@ -1483,18 +1401,6 @@ function CreateWO({ tenant, user, hideRates, onSaved, editing, onUpdated, fuelAu
         </div>
         <div className="fg">
           <label className="label">Customer PO #</label>
-          {posForCustomer.length > 0 && (
-            <select className="input" value="" onChange={e=>{ if(e.target.value) recallPo(e.target.value); }}
-              style={{marginBottom:6}} title="Reuse a purchase order already on file for this customer">
-              <option value="">📋 Recall a PO on file ({posForCustomer.length})…</option>
-              {posForCustomer.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.po_number}{p.is_blanket ? " · blanket" : ""} · {(p.lines||[]).length} line{(p.lines||[]).length===1?"":"s"}
-                  {p.doc_date ? " · " + p.doc_date : ""}
-                </option>
-              ))}
-            </select>
-          )}
           <div style={{display:"flex",gap:6}}>
             <input className="input" value={poNumber} onChange={e=>setPoNumber(e.target.value)} placeholder="PO number — or N/A if none" style={{flex:1}}/>
             <button type="button" className="btn btn-outline btn-sm" onClick={()=>setPoNumber(poNumber==="N/A" ? "" : "N/A")} style={{whiteSpace:"nowrap"}} title="Mark that no PO is used">{poNumber==="N/A" ? "Clear" : "N/A"}</button>
@@ -1632,33 +1538,11 @@ function buildWoPdf(wo, hideRates){
 }
 
 // ─── STEP 2: OPEN WO LIST ────────────────────────────────────────────────────
-function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate, isAdmin, tenantId, printerEmail, onNewDelivery, blanketPOs }) {
+function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate, printerEmail, onNewDelivery, blanketPOs }) {
   const blanketTag = (wo) => { const bp = wo.po_number ? findBlanket(blanketPOs, wo.po_number) : null; if (!bp) return null; const st = blanketStats(bp, workOrders); if (st.remU == null) return null; return <> · <span style={{color: st.remU<=0 ? "var(--red)" : "var(--inv)", fontWeight:600}}>{Math.round(st.remU).toLocaleString()} {bp.unit} left on PO</span></>; };
   const newDeliveryLabel = (wo) => (wo.po_number && wo.po_number !== "N/A") ? "🔁 New delivery" : "⧉ Duplicate";
   const open = workOrders.filter(w => w.status === "open");
   const recent = workOrders.filter(w => w.status === "invoiced").slice(0, 5);
-  const voided = workOrders.filter(w => w.status === "voided");
-  const [showVoided, setShowVoided] = useState(false);
-  const [voidBusy, setVoidBusy] = useState("");
-
-  // Void clears a mistaken work order off the open list without deleting it or
-  // leaving a hole in the number series. Owner/admin only, enforced server-side.
-  const setVoided = async (wo, makeVoid) => {
-    if (makeVoid && !window.confirm(`Void work order #${wo.id} for ${wo.customer}?\n\nIt comes off the open list but is kept on record, and you can restore it later.`)) return;
-    setVoidBusy(wo.id);
-    try {
-      const reason = makeVoid ? (window.prompt("Reason (optional):", "") || "") : "";
-      const { error } = await supabase.rpc("fn_void_work_order", {
-        p_tenant_id: tenantId, p_id: wo.id, p_void: makeVoid, p_reason: reason,
-      });
-      if (error) throw new Error(error.message);
-      onReload && onReload();
-    } catch (e) {
-      setPrintMsg("Could not " + (makeVoid ? "void" : "restore") + " WO #" + wo.id + ": " + e.message);
-      setTimeout(()=>setPrintMsg(""), 8000);
-    }
-    setVoidBusy("");
-  };
 
   const woTotal = (wo) => (wo.lines || []).reduce((s,l) => s + (Number(l.qty)||0)*(Number(l.rate)||0), 0);
 
@@ -1668,9 +1552,7 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
     try {
       setPrintMsg("Sending WO #"+wo.id+" to the printer…");
       const pdf = buildWoPdf(wo, hideRates);
-      // The destination lives server-side in tenant_settings.printer_email. Passing
-      // it from here would let any signed-in user mail a PDF anywhere.
-      const { data, error } = await supabase.functions.invoke("email-print", { body: { tenant_id: wo.tenant_id, subject:"Work Order #"+wo.id+" — "+wo.customer, filename:"WO-"+wo.id+".pdf", pdf_base64: pdf } });
+      const { data, error } = await supabase.functions.invoke("email-print", { body: { to: printerEmail, subject:"Work Order #"+wo.id+" — "+wo.customer, filename:"WO-"+wo.id+".pdf", pdf_base64: pdf } });
       if (error) throw new Error(await fnErrMsg(error));
       if (data && data.error) throw new Error((typeof data.error==="string"?data.error:JSON.stringify(data.error)) + (data.detail ? " — " + (data.detail.message || JSON.stringify(data.detail)) : ""));
       setPrintMsg("✓ Sent WO #"+wo.id+" to "+printerEmail+" — allow a minute for the printer to pick it up");
@@ -1731,9 +1613,13 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
       // Never push a work order that already carries an invoice.
       if (wo.invoice_qbo_id || invoicedNow[wo.id]) { fail.push({ id: wo.id, error: "already invoiced — skipped to prevent a duplicate" }); continue; }
       try {
-        const { data, error } = await supabase.functions.invoke("qbo-create-invoice", { body: { wo, tenant_id: wo.tenant_id } });
-        if (error) throw new Error(await fnErrMsg(error));
-        if (!data || !data.success) throw new Error((data && data.error) || "QuickBooks push failed");
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-create-invoice`, {
+          method: "POST",
+          headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+          body: JSON.stringify({ wo, tenant_id: wo.tenant_id }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || "QuickBooks push failed");
         // QuickBooks has the invoice now — lock this WO immediately so it can't be re-pushed.
         setInvoicedNow(s => ({ ...s, [wo.id]: true }));
         // Mark it invoiced locally; retry a couple of times if the write blips.
@@ -1841,51 +1727,11 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
                   Create Invoice
                 </button>
                 )}
-                {isAdmin && (
-                <button className="btn btn-outline btn-sm" disabled={voidBusy===wo.id}
-                  onClick={()=>setVoided(wo, true)}
-                  style={{color:"var(--red)",borderColor:"var(--red)"}}
-                  title="Created by mistake? Take it off the open list without deleting it.">
-                  {voidBusy===wo.id ? "Voiding…" : "⊘ Void"}
-                </button>
-                )}
               </div>
             </div>
           ))
         )}
       </div>
-
-      {isAdmin && voided.length > 0 && (
-        <div className="sheet">
-          <div className="sheet-h">
-            <div>
-              <div className="sheet-title" style={{fontSize:15}}>Voided</div>
-              <div className="sheet-meta">{voided.length} kept on record, off the open list</div>
-            </div>
-            <button className="btn-text" onClick={()=>setShowVoided(v=>!v)}>{showVoided ? "Hide" : "Show"}</button>
-          </div>
-          {showVoided && voided.map(wo => (
-            <div key={wo.id} className="wo-card" style={{borderLeftColor:"var(--muted)",opacity:0.75}}>
-              <div className="wo-meta-l">
-                <div className="wo-id">WO #{wo.id} · {wo.date}</div>
-                <div className="wo-customer">{wo.customer}</div>
-                <div className="wo-info">
-                  Voided{wo.voided_by ? ` by ${wo.voided_by}` : ""}{wo.voided_at ? ` on ${new Date(wo.voided_at).toLocaleDateString()}` : ""}
-                  {wo.void_reason ? ` · ${wo.void_reason}` : ""}
-                </div>
-              </div>
-              <div className="wo-meta-r">
-                <span className="wo-pill" style={{background:"#eee9de",color:"var(--muted)"}}>Voided</span>
-              </div>
-              <div className="wo-actions">
-                <button className="btn btn-outline btn-sm" disabled={voidBusy===wo.id} onClick={()=>setVoided(wo, false)}>
-                  {voidBusy===wo.id ? "Restoring…" : "↩ Restore to open"}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {recent.length > 0 && (
         <div className="sheet">
@@ -1942,9 +1788,13 @@ function InvoicePush({ wo, qboConnected, user, onDone, onBack, mayInvoice }) {
     if (!window.confirm(`Post a LIVE invoice to QuickBooks for ${wo.customer}?\n\nIt will be saved (not sent) so you can review it in QuickBooks before sending.`)) return;
     setErr(""); setPushing(true);
     try {
-      const { data, error } = await supabase.functions.invoke("qbo-create-invoice", { body: { wo, tenant_id: wo.tenant_id } });
-      if (error) throw new Error(await fnErrMsg(error));
-      if (!data || !data.success) throw new Error((data && data.error) || "QuickBooks push failed");
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-create-invoice`, {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ wo, tenant_id: wo.tenant_id }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "QuickBooks push failed");
 
       const { error: uErr } = await supabase.from("work_orders").update({
         status: "invoiced",
@@ -2390,127 +2240,7 @@ function BlanketOrders({ blanketPOs, workOrders, tenant, onChange }) {
   );
 }
 
-// First-run guide. Reads the company's real data, so each step ticks itself off
-// as the owner completes it and the whole panel retires once they're set up.
-function SetupGuide({ tenant, qboConnected, workOrders, onOpenSettings, onCreateWO, onReload }) {
-  const [counts, setCounts] = useState(null);
-  const [sampleBusy, setSampleBusy] = useState(false);
-  const [sampleMsg, setSampleMsg] = useState("");
-  const [tick, setTick] = useState(0);
-  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("setupdone:"+tenant.id)==="1"; } catch(_e){ return false; } });
-
-  useEffect(() => {
-    (async () => {
-      const [it, cu, tu, sa] = await Promise.all([
-        supabase.from("qbo_items").select("id", { count:"exact", head:true }).eq("tenant_id", tenant.id),
-        supabase.from("customers").select("id", { count:"exact", head:true }).eq("tenant_id", tenant.id),
-        supabase.from("tenant_users").select("id", { count:"exact", head:true }).eq("tenant_id", tenant.id).eq("active", true),
-        supabase.from("customers").select("id", { count:"exact", head:true }).eq("tenant_id", tenant.id).eq("is_sample", true),
-      ]);
-      setCounts({ items: it.count||0, customers: cu.count||0, team: tu.count||0, samples: sa.count||0 });
-    })();
-  }, [tenant.id, qboConnected, workOrders.length, tick]);
-
-  // Sample company: fictional customers and products so a trial can try the whole
-  // flow before connecting QuickBooks. Cleared automatically on subscribing.
-  const loadSamples = async () => {
-    setSampleBusy(true); setSampleMsg("");
-    const { error } = await supabase.rpc("fn_load_sample_data", { p_tenant_id: tenant.id });
-    setSampleBusy(false);
-    if (error) { setSampleMsg("Could not load the sample company: " + error.message); return; }
-    setSampleMsg("Sample customers and products added — try writing a work order.");
-    setTick(t=>t+1); onReload && onReload();
-  };
-  const clearSamples = async () => {
-    if (!window.confirm("Remove the sample company?\n\nThe fictional customers, products and any work orders made with them are deleted. Your real data is untouched.")) return;
-    setSampleBusy(true); setSampleMsg("");
-    const { error } = await supabase.rpc("fn_clear_sample_data_as_admin", { p_tenant_id: tenant.id });
-    setSampleBusy(false);
-    if (error) { setSampleMsg("Could not remove it: " + error.message); return; }
-    setSampleMsg("Sample company removed.");
-    setTick(t=>t+1); onReload && onReload();
-  };
-
-  if (hidden || !counts) return null;
-
-  const steps = [
-    { n:1, c:"#2563eb", title:"Connect QuickBooks", why:"Links your company so invoices land in your books.",
-      done: qboConnected, action:"Connect", go:onOpenSettings },
-    { n:2, c:"#16a34a", title:"Bring in your products", why:"Your QuickBooks items become the things you can put on a work order.",
-      done: counts.items>0, action:"Sync products", go:onOpenSettings, needs:qboConnected },
-    { n:3, c:"#ca8a04", title:"Bring in your customers", why:"So you pick a name instead of typing it every time.",
-      done: counts.customers>0, action:"Sync customers", go:onOpenSettings, needs:qboConnected },
-    { n:4, c:"#ea580c", title:"Add your crew", why:"Techs create work orders in the field. Optional — you can do this later.",
-      done: counts.team>1, action:"Invite", go:onOpenSettings, optional:true },
-    { n:5, c:"#7c3aed", title:"Write your first work order", why:"Pick a customer, add lines, save.",
-      done: workOrders.length>0, action:"Create one", go:onCreateWO },
-    { n:6, c:"#0f766e", title:"Send it to QuickBooks", why:"One tap turns the work order into a draft invoice.",
-      done: workOrders.some(w=>w.status==="invoiced"), action:"Open work orders", go:onCreateWO },
-  ];
-  const doneCount = steps.filter(s=>s.done).length;
-  const allDone = steps.every(s=>s.done || s.optional);
-
-  const dismiss = () => { setHidden(true); try { localStorage.setItem("setupdone:"+tenant.id,"1"); } catch(_e){} };
-
-  return (
-    <div className="dash-section" style={{borderLeft:"6px solid var(--brass)"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",gap:8,flexWrap:"wrap"}}>
-        <h3 style={{margin:0}}>{allDone ? "You're all set 🎉" : "Get set up"}</h3>
-        <div style={{fontSize:12,color:"var(--muted)"}}>
-          {doneCount} of {steps.length} done
-          {allDone && <button className="btn-text" onClick={dismiss} style={{marginLeft:8}}>Hide this</button>}
-        </div>
-      </div>
-      <div style={{height:8,background:"#eee9de",borderRadius:4,margin:"10px 0 14px",overflow:"hidden"}}>
-        <div style={{width:(doneCount/steps.length*100)+"%",height:"100%",background:"var(--brass)",transition:"width .3s"}}></div>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:10}}>
-        {steps.map(s => (
-          <div key={s.n} style={{border:"1px solid "+(s.done?"#cfe0d5":"var(--line)"),borderLeft:"5px solid "+(s.done?"var(--go)":s.c),
-              borderRadius:8,padding:"12px 14px",background:s.done?"#f5faf6":"#fff",opacity:(s.needs===false?0.55:1)}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-              <span style={{width:22,height:22,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",
-                justifyContent:"center",fontSize:12,fontWeight:700,color:"#fff",background:s.done?"var(--go)":s.c}}>
-                {s.done ? "✓" : s.n}
-              </span>
-              <span style={{fontWeight:700,fontSize:14}}>{s.title}</span>
-            </div>
-            <div style={{fontSize:12,color:"var(--muted)",lineHeight:1.45,marginBottom:s.done?0:10}}>
-              {s.why}{s.optional && !s.done ? " (optional)" : ""}
-            </div>
-            {!s.done && (
-              <button className="btn btn-outline btn-sm" onClick={s.go} disabled={s.needs===false}
-                title={s.needs===false ? "Connect QuickBooks first" : ""}>
-                {s.action} →
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div style={{marginTop:12,paddingTop:12,borderTop:"1px dashed var(--line)",fontSize:13}}>
-        {counts.samples > 0 ? (
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <span>🧪 <b>Sample company loaded.</b> Fictional customers and products, marked SAMPLE. They disappear on their own when you subscribe.</span>
-            <button className="btn btn-outline btn-sm" onClick={clearSamples} disabled={sampleBusy}>
-              {sampleBusy ? "Removing…" : "Remove now"}
-            </button>
-          </div>
-        ) : (
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <span style={{color:"var(--muted)"}}>Want to see it work before connecting anything? Load a sample company and write a practice work order.</span>
-            <button className="btn btn-outline btn-sm" onClick={loadSamples} disabled={sampleBusy}>
-              {sampleBusy ? "Loading…" : "🧪 Try with sample data"}
-            </button>
-          </div>
-        )}
-        {sampleMsg && <div style={{marginTop:8,color:"var(--inv)"}}>{sampleMsg}</div>}
-      </div>
-    </div>
-  );
-}
-
-function Dashboard({ workOrders, tenant, hideRates, onOpenJobs, blanketPOs, onBlanketsChange, isAdmin, qboConnected, onOpenSettings, onCreateWO, onReload }) {
+function Dashboard({ workOrders, tenant, onOpenJobs, blanketPOs, onBlanketsChange }) {
   const qtyOf = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
   const woTotal = (wo) => (wo.lines||[]).reduce((s,l)=> s + qtyOf(l)*(Number(l.rate)||0), 0);
   const now = new Date();
@@ -2541,33 +2271,28 @@ function Dashboard({ workOrders, tenant, hideRates, onOpenJobs, blanketPOs, onBl
           <div className="sheet-meta">{tenant.name} · live snapshot of your business</div>
         </div>
       </div>
-      {isAdmin && <SetupGuide tenant={tenant} qboConnected={qboConnected} workOrders={workOrders}
-        onOpenSettings={onOpenSettings} onCreateWO={onCreateWO} onReload={onReload} />}
       <div className="dash-grid">
         <div className="dash-card dash-a" onClick={onOpenJobs} style={{cursor:"pointer"}}>
           <div className="lbl">Open jobs</div>
           <div className="val">{open.length}</div>
-          <div className="sub">{hideRates ? "awaiting invoice" : `${fmt$(openVal)} awaiting invoice`}</div>
+          <div className="sub">{fmt$(openVal)} awaiting invoice</div>
         </div>
         <div className="dash-card dash-b">
           <div className="lbl">Invoiced this month</div>
-          <div className="val">{hideRates ? invThisMonth.length : fmt$(monthRev)}</div>
+          <div className="val">{fmt$(monthRev)}</div>
           <div className="sub">{invThisMonth.length} invoice{invThisMonth.length!==1?"s":""}</div>
         </div>
         <div className="dash-card dash-c">
           <div className="lbl">All-time invoiced</div>
-          <div className="val">{hideRates ? invoiced.length : fmt$(allRev)}</div>
+          <div className="val">{fmt$(allRev)}</div>
           <div className="sub">{invoiced.length} total</div>
         </div>
-        {!hideRates && (
         <div className="dash-card dash-d">
           <div className="lbl">Avg job value</div>
           <div className="val">{fmt$(invoiced.length ? allRev/invoiced.length : 0)}</div>
           <div className="sub">per invoice</div>
         </div>
-        )}
       </div>
-      {!hideRates && (
       <div className="dash-section">
         <h3>Revenue — last 6 months</h3>
         <div className="dash-bar">
@@ -2580,9 +2305,7 @@ function Dashboard({ workOrders, tenant, hideRates, onOpenJobs, blanketPOs, onBl
           ))}
         </div>
       </div>
-      )}
-      {!hideRates && <BlanketOrders blanketPOs={blanketPOs} workOrders={workOrders} tenant={tenant} onChange={onBlanketsChange} />}
-      {!hideRates && (
+      <BlanketOrders blanketPOs={blanketPOs} workOrders={workOrders} tenant={tenant} onChange={onBlanketsChange} />
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12}}>
         <div className="dash-section">
           <h3>Top technicians</h3>
@@ -2595,7 +2318,6 @@ function Dashboard({ workOrders, tenant, hideRates, onOpenJobs, blanketPOs, onBl
           {topCust.map(([c,x]) => <div key={c} className="dash-row"><span>{c}</span><span><b>{fmt$(x.v)}</b> · {x.n}</span></div>)}
         </div>
       </div>
-      )}
       <div className="dash-section">
         <h3>Recent activity</h3>
         {recent.length===0 && <div style={{fontSize:13,color:"var(--muted)"}}>No work orders yet — create your first one.</div>}
@@ -2603,7 +2325,7 @@ function Dashboard({ workOrders, tenant, hideRates, onOpenJobs, blanketPOs, onBl
           <div key={w.id} className="dash-row">
             <span>WO #{w.id} · {w.customer||"—"}</span>
             <span style={{color: w.status==="invoiced" ? "var(--inv)" : "var(--wip)", fontWeight:600, whiteSpace:"nowrap"}}>
-              {w.status==="invoiced" ? `Invoiced${w.invoice_no?" #"+w.invoice_no:""}` : "Open"}{hideRates ? "" : ` · ${fmt$(woTotal(w))}`}
+              {w.status==="invoiced" ? `Invoiced${w.invoice_no?" #"+w.invoice_no:""}` : "Open"} · {fmt$(woTotal(w))}
             </span>
           </div>
         ))}
@@ -3072,38 +2794,6 @@ function PriceBook({ tenant }) {
     await supabase.from(item.source==="qbo"?"qbo_items":"custom_skus").update({price:v}).eq("id",item.id);
     setItems(its=>its.map(i=>i.id===item.id?{...i,price:v}:i)); flash("Base saved");
   };
-  // ---- price level management ----
-  const addLevel = async () => {
-    const nextRank = (levels.reduce((m,l)=>Math.max(m, l.rank||0), 0) || 0) + 1;
-    if (nextRank > 50) { flash("50 price levels is the maximum"); return; }
-    const { error } = await supabase.from("price_levels").insert({
-      tenant_id: tenant.id, name: "Price Level " + nextRank, rank: nextRank,
-      mode: "percent", default_adjustment: 0, active: true,
-    });
-    if (error) { flash("Could not add: " + error.message); return; }
-    flash("Level added"); await load();
-  };
-  const updateLevel = async (id, patch) => {
-    const { error } = await supabase.from("price_levels").update(patch).eq("id", id);
-    if (error) { flash("Could not save: " + error.message); return; }
-    setLevels(ls => ls.map(l => l.id===id ? { ...l, ...patch } : l));
-    flash("Saved");
-  };
-  const removeLevel = async (lv) => {
-    const used = items.filter(it => cells[it.id] && cells[it.id][lv.id] != null).length;
-    const tiedCustomers = customers.filter(c => c.primary_price_level_id === lv.id).length;
-    if (!window.confirm(
-      `Delete "${lv.name}"?\n\n` +
-      `${used} item price${used===1?"":"s"} on this level will be deleted.\n` +
-      `${tiedCustomers} customer${tiedCustomers===1?"":"s"} on this level will become untiered.\n\n` +
-      `This can't be undone.`)) return;
-    await supabase.from("price_level_items").delete().eq("price_level_id", lv.id);
-    await supabase.from("customers").update({ primary_price_level_id: null }).eq("primary_price_level_id", lv.id);
-    const { error } = await supabase.from("price_levels").delete().eq("id", lv.id);
-    if (error) { flash("Could not delete: " + error.message); return; }
-    flash("Level deleted"); await load();
-  };
-
   const setTier = async (custId, plId) => {
     const v = plId || null;
     await supabase.from("customers").update({primary_price_level_id:v}).eq("id",custId);
@@ -3236,7 +2926,7 @@ function PriceBook({ tenant }) {
       </div>
       {msg && <div style={{background:"#eef6f1",border:"1px solid #2ca01c",borderRadius:6,padding:"8px 12px",marginBottom:12,fontSize:13}}>{msg}</div>}
       <div style={{display:"flex",gap:6,marginBottom:14}}>
-        {["matrix","levels","customers","adjust","import"].map(t=>(
+        {["matrix","customers","adjust","import"].map(t=>(
           <button key={t} onClick={()=>setTab(t)}
             style={{flex:1,padding:"9px 4px",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer",textTransform:"capitalize",fontFamily:"inherit",background:tab===t?"var(--ink)":"#fff",color:tab===t?"#fff":"var(--ink)",border:"1px solid var(--line)"}}>{t}</button>
         ))}
@@ -3274,61 +2964,6 @@ function PriceBook({ tenant }) {
           </table>
         </div>
         )
-      )}
-
-      {tab==="levels" && (
-        <div>
-          <div style={{fontSize:12.5,color:"var(--muted)",marginBottom:12}}>
-            Price levels are your customer tiers. Rename them to whatever you call them — Contract, Fleet, Dealer, Walk-in. The name here is the column header in the matrix and what you pick on a customer.
-          </div>
-          {levels.length===0 ? (
-            <div style={{padding:20,textAlign:"center",color:"var(--muted)",border:"1px dashed var(--line)",borderRadius:8,marginBottom:12}}>
-              No levels yet. Add one, or create them automatically by importing a price list.
-            </div>
-          ) : (
-            <div style={{border:"1px solid var(--line)",borderRadius:8,overflow:"hidden",marginBottom:12}}>
-              {levels.map(l => {
-                const used = items.filter(it => cells[it.id] && cells[it.id][l.id] != null).length;
-                const tied = customers.filter(c => c.primary_price_level_id === l.id).length;
-                return (
-                  <div key={l.id} style={{padding:"12px 14px",borderBottom:"1px solid #eee"}}>
-                    <div style={{display:"grid",gridTemplateColumns:"auto 1fr auto",gap:10,alignItems:"center"}}>
-                      <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,color:"var(--muted)",minWidth:28}}>#{l.rank}</span>
-                      <input className="input" defaultValue={l.name} onBlur={e=>{ const v=e.target.value.trim(); if(v && v!==l.name) updateLevel(l.id,{name:v}); }} placeholder="Level name"/>
-                      <button onClick={()=>removeLevel(l)} title="Delete this level"
-                        style={{background:"transparent",border:"none",color:"var(--red)",cursor:"pointer",fontSize:15,padding:"0 4px"}}>✕</button>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginTop:8}}>
-                      <div>
-                        <div className="label" style={{marginBottom:4}}>Default rule</div>
-                        <select className="input" value={l.mode} onChange={e=>updateLevel(l.id,{mode:e.target.value})}>
-                          <option value="percent">Percent off base</option>
-                          <option value="fixed">Dollars off base</option>
-                          <option value="custom">Set price per item</option>
-                        </select>
-                      </div>
-                      {l.mode !== "custom" && (
-                        <div>
-                          <div className="label" style={{marginBottom:4}}>{l.mode==="percent" ? "Percent off" : "Dollars off"}</div>
-                          <input className="input" type="number" step="0.01" defaultValue={l.default_adjustment ?? 0}
-                            onBlur={e=>{ const v=parseFloat(e.target.value)||0; if(v!==Number(l.default_adjustment)) updateLevel(l.id,{default_adjustment:v}); }}/>
-                        </div>
-                      )}
-                    </div>
-                    <div style={{fontSize:11,color:"var(--muted)",marginTop:6}}>
-                      {used} item price{used===1?"":"s"} set · {tied} customer{tied===1?"":"s"} on this level
-                      {l.mode!=="custom" ? ` · items without a set price use base ${l.mode==="percent" ? "− "+(l.default_adjustment||0)+"%" : "− $"+(l.default_adjustment||0)}` : ""}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <button className="btn btn-primary" onClick={addLevel}>＋ Add a price level</button>
-          <div style={{fontSize:11,color:"var(--muted)",marginTop:8}}>
-            Name changes show up immediately in the matrix headers and on the customer tier dropdown.
-          </div>
-        </div>
       )}
 
       {tab==="customers" && (
@@ -3450,18 +3085,8 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
         }
       }
     };
-    // Intuit's OAuth pages can sever window.opener, so the postMessage above may
-    // never fire. Re-check whenever the user comes back to this tab.
-    const recheck = () => onQboChange();
-    const onVis = () => { if (!document.hidden) recheck(); };
     window.addEventListener("message", handler);
-    window.addEventListener("focus", recheck);
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      window.removeEventListener("message", handler);
-      window.removeEventListener("focus", recheck);
-      document.removeEventListener("visibilitychange", onVis);
-    };
+    return () => window.removeEventListener("message", handler);
   }, []);
 
   const loadItemCount = async () => {
@@ -3483,29 +3108,13 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
 
   const connectQbo = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Please sign in again");
-      // Tell qbo-auth what folder this app is served from. It travels inside the
-      // signed state so qbo-callback can send the user back to a real HTML page —
-      // the functions gateway serves its own responses as text/plain.
-      const appBase = window.location.origin + window.location.pathname.replace(/[^/]*$/, "");
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-auth?tenant_id=${tenant.id}&app_base=${encodeURIComponent(appBase)}`, {
-        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${session.access_token}` },
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-auth?tenant_id=${tenant.id}`, {
+        headers: { "apikey": SUPABASE_KEY, "Authorization": `Bearer ${SUPABASE_KEY}` },
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       const w = window.open(data.url, "qbo-oauth", "width=600,height=700");
       if (!w) alert("Please allow popups to connect QuickBooks");
-      // Belt and braces: poll live status so the screen updates on its own even if
-      // the popup's postMessage is lost or the user closes the tab manually.
-      const t0 = Date.now();
-      const iv = setInterval(async () => {
-        if (Date.now() - t0 > 180000) { clearInterval(iv); return; }
-        try {
-          const { data: st } = await supabase.functions.invoke("qbo-status", { body: { tenant_id: tenant.id } });
-          if (st && st.connected) { clearInterval(iv); onQboChange(); }
-        } catch (_e) {}
-      }, 2500);
     } catch (e) {
       alert(`Failed to start QuickBooks connection: ${e.message}`);
     }
@@ -3514,9 +3123,13 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
   const autoSyncAfterConnect = async () => {
     setSyncing(true);
     try {
-      const { data, error } = await supabase.functions.invoke("qbo-list-items", { body: { tenant_id: tenant.id } });
-      if (error) throw new Error(await fnErrMsg(error));
-      if (data && data.success) {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-list-items`, {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ tenant_id: tenant.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
         alert(`✅ QuickBooks connected!\n\n📦 Auto-synced ${data.count} products from your QuickBooks Online account.`);
         loadItemCount();
       } else {
@@ -3539,9 +3152,13 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
   const syncItems = async () => {
     setSyncing(true);
     try {
-      const { data, error } = await supabase.functions.invoke("qbo-list-items", { body: { tenant_id: tenant.id } });
-      if (error) throw new Error(await fnErrMsg(error));
-      if (!data || !data.success) throw new Error((data && data.error) || "Sync failed");
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-list-items`, {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ tenant_id: tenant.id }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
       alert(`✅ Synced ${data.count} products from QuickBooks`);
       loadItemCount();
     } catch (e) {
@@ -3553,9 +3170,13 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
   const syncCustomers = async () => {
     setSyncingCust(true);
     try {
-      const { data, error } = await supabase.functions.invoke("qbo-list-customers", { body: { tenant_id: tenant.id } });
-      if (error) throw new Error(await fnErrMsg(error));
-      if (!data || !data.success) throw new Error((data && data.error) || "Customer sync failed");
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/qbo-list-customers`, {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ tenant_id: tenant.id }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
       alert(`✅ Synced ${data.count} customers from QuickBooks`);
       loadCustCount();
     } catch (e) {
