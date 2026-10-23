@@ -426,6 +426,79 @@ function findBlanket(list, po) {
 }
 const today = () => new Date().toISOString().split("T")[0];
 
+// ─── ORDER HAND-OFF (orders go to a distributor who invoices; owner earns commission) ──
+// Weeks run Monday–Sunday on the work order's delivery date (wo.date, YYYY-MM-DD).
+const ymdLocal = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+const parseYmd = (s) => { const [y,m,d] = String(s||"").slice(0,10).split("-").map(Number); return new Date(y||1970, (m||1)-1, d||1); };
+function weekStart(d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); const dow = (x.getDay()+6)%7; x.setDate(x.getDate()-dow); return x; }
+function weekRange(offset) { const s = weekStart(new Date()); s.setDate(s.getDate()+7*(offset||0)); const e = new Date(s); e.setDate(e.getDate()+6); return { start: ymdLocal(s), end: ymdLocal(e), s, e }; }
+const fmtMD = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const woLineAmt = (l) => ((l.qty===""||l.qty==null)?1:(Number(l.qty)||0)) * (Number(l.rate)||0);
+const woAmount = (w) => (w.lines||[]).reduce((s,l)=>s+woLineAmt(l),0);
+const woLive = (w) => !w.voided_at && !w.is_sample;
+// Edited after it was sent? (2-min slack: marking it sent also bumps updated_at)
+const woChangedSinceSent = (w) => !!w.handoff_sent_at && new Date(w.updated_at||0).getTime() > new Date(w.handoff_sent_at).getTime() + 120000;
+// Week batches go by the day the order was taken (entered), in local time.
+const woTakenDate = (w) => w.created_at ? ymdLocal(new Date(w.created_at)) : String(w.date||"").slice(0,10);
+const woDate = (w) => String(w.date || w.created_at || "").slice(0,10);
+
+function buildHandoffPdf(wos, opts) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const from = opts.from || "", to = opts.to || "", label = opts.label || "";
+  let total = 0;
+  doc.setFontSize(16); doc.setFont(undefined,"bold");
+  doc.text("ORDERS FOR " + String(to).toUpperCase(), 14, 18);
+  doc.setFontSize(10); doc.setFont(undefined,"normal");
+  doc.text("From: " + from + "     Orders taken " + label + "     " + wos.length + " order" + (wos.length===1?"":"s"), 14, 25);
+  doc.line(14, 29, 196, 29);
+  let y = 37;
+  const need = (h) => { if (y + h > 282) { doc.addPage(); y = 18; } };
+  for (const w of wos) {
+    const lines = w.lines || [];
+    need(16);
+    doc.setFont(undefined,"bold"); doc.setFontSize(11);
+    doc.text(String(w.customer||"—"), 14, y);
+    doc.setFontSize(9); doc.setFont(undefined,"normal");
+    doc.text("WO #" + w.id + "  ·  Deliver " + (w.date||"") + (w.po_number && w.po_number!=="N/A" ? "  ·  PO " + w.po_number : ""), 196, y, {align:"right"});
+    y += 6;
+    let sub = 0;
+    for (const l of lines) {
+      need(6);
+      const qty = (l.qty===""||l.qty==null)?1:(Number(l.qty)||0);
+      const amt = woLineAmt(l); sub += amt;
+      const lab = doc.splitTextToSize(String(l.item||"") + (l.desc ? " — " + l.desc : ""), 110);
+      doc.text(String(qty), 18, y); doc.text(lab, 34, y);
+      doc.text(fmt$(Number(l.rate)||0), 168, y, {align:"right"}); doc.text(fmt$(amt), 196, y, {align:"right"});
+      y += 5 + (lab.length-1)*4.5;
+    }
+    if (w.notes) { const n = doc.splitTextToSize("Notes: " + w.notes, 160); need(n.length*4.5); doc.setTextColor(100); doc.text(n, 34, y); doc.setTextColor(0); y += n.length*4.5; }
+    doc.setFont(undefined,"bold"); doc.text("Order total " + fmt$(sub), 196, y, {align:"right"}); doc.setFont(undefined,"normal");
+    total += sub; y += 4; doc.setDrawColor(220); doc.line(14, y, 196, y); doc.setDrawColor(0); y += 7;
+  }
+  need(10);
+  doc.setFontSize(12); doc.setFont(undefined,"bold");
+  doc.text("WEEK TOTAL  " + fmt$(total), 196, y + 2, {align:"right"});
+  return doc.output("blob");
+}
+
+function handoffEmailBody(wos, opts) {
+  let total = 0;
+  const parts = ["Orders taken the week of " + opts.label + " (" + wos.length + " order" + (wos.length===1?"":"s") + "):", ""];
+  wos.forEach(w => {
+    const sub = woAmount(w); total += sub;
+    parts.push((w.customer||"—") + " — deliver " + (w.date||"") + (w.po_number && w.po_number!=="N/A" ? " — PO " + w.po_number : "") + " — WO #" + w.id);
+    (w.lines||[]).forEach(l => {
+      const qty = (l.qty===""||l.qty==null)?1:(Number(l.qty)||0);
+      parts.push("   " + qty + " × " + (l.item||"") + (l.desc ? " (" + l.desc + ")" : "") + " @ " + fmt$(Number(l.rate)||0) + " = " + fmt$(woLineAmt(l)));
+    });
+    if (w.notes) parts.push("   Notes: " + w.notes);
+    parts.push("   Order total: " + fmt$(sub), "");
+  });
+  parts.push("Week total: " + fmt$(total), "", "— " + (opts.from||""));
+  return parts.join("\n");
+}
+
 // ─── ROOT ────────────────────────────────────────────────────────────────────
 function App() {
   const [view, setView] = useState("loading");
@@ -808,7 +881,10 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
   const trialEnded = trialEndsAt ? (trialEndsAt.getTime() < Date.now()) : false;
   const needsSub = !subActive && trialEnded;
 
-  const openCount = workOrders.filter(w => w.status === "open").length;
+  const handoff = settings.handoff_enabled ? { name: settings.handoff_name || "", email: settings.handoff_email || "", pct: Number(settings.commission_pct) || 0 } : null;
+  const openCount = handoff
+    ? (() => { const wk = weekRange(0); return workOrders.filter(w => woLive(w) && w.status !== "invoiced" && woTakenDate(w) >= wk.start && woTakenDate(w) <= wk.end).length; })()
+    : workOrders.filter(w => w.status === "open").length;
   const signOut = async () => {
     // Try a normal sign-out, then a local-only one; never let a server error leave the user stuck signed in.
     try { await supabase.auth.signOut(); } catch (_e) {}
@@ -862,7 +938,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
       )}
 
       <div className="main">
-        <StepRibbon step={step} setStep={setStep} openCount={openCount} hasEditing={!!editingWO} canCreate={canCreate} isAdmin={isAdmin} />
+        <StepRibbon step={step} setStep={setStep} openCount={openCount} hasEditing={!!editingWO} canCreate={canCreate} isAdmin={isAdmin} handoff={handoff} />
 
         {step === 1 && canCreate && (
           <CreateWO
@@ -890,6 +966,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
             printerEmail={settings.printer_email || ""}
             onNewDelivery={(wo) => { setTemplateWO(wo); setStep(1); }}
             blanketPOs={blanketPOs}
+            handoff={handoff} tenant={tenant}
           />
         )}
 
@@ -904,7 +981,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
         )}
 
         {step === 4 && isAdmin && <PriceBook tenant={tenant} />}
-        {step === 6 && <Dashboard workOrders={workOrders} tenant={tenant} onOpenJobs={()=>setStep(2)} blanketPOs={blanketPOs} onBlanketsChange={loadBlankets} />}
+        {step === 6 && <Dashboard workOrders={workOrders} tenant={tenant} onOpenJobs={()=>setStep(2)} blanketPOs={blanketPOs} onBlanketsChange={loadBlankets} handoff={handoff} hideRates={hideRates} />}
         {step === 7 && isAdmin && <ImportCenter tenant={tenant} onDone={()=>setStep(4)} />}
         {step === 8 && isAdmin && <Automations tenant={tenant} fuelAuto={fuelAuto} onChange={loadAutomation} />}
 
@@ -923,7 +1000,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
 }
 
 // ─── STEP RIBBON ────────────────────────────────────────────────────────────
-function StepRibbon({ step, setStep, openCount, hasEditing, canCreate, isAdmin }) {
+function StepRibbon({ step, setStep, openCount, hasEditing, canCreate, isAdmin, handoff }) {
   return (
     <div className="step-ribbon">
       <div className={`step-card s6 ${step===6?"active":""}`} onClick={()=>setStep(6)}>
@@ -940,10 +1017,11 @@ function StepRibbon({ step, setStep, openCount, hasEditing, canCreate, isAdmin }
       )}
       <div className={`step-card s2 ${step===2?"active":""}`} onClick={()=>setStep(2)}>
         <div className="step-num">Step 2</div>
-        <div className="step-title">Open Work Orders</div>
-        <div className="step-meta">Awaiting invoice</div>
+        <div className="step-title">{handoff ? "Orders for " + (handoff.name || "distributor") : "Open Work Orders"}</div>
+        <div className="step-meta">{handoff ? "This week · email batch" : "Awaiting invoice"}</div>
         {openCount > 0 && <div className="step-pill">{openCount}</div>}
       </div>
+      {!handoff && (
       <div className={`step-card s3 ${step===3?"active":""}`}
         onClick={()=>{ if(hasEditing) setStep(3); }}
         style={{opacity: hasEditing ? 1 : 0.5, cursor: hasEditing ? "pointer" : "default"}}>
@@ -951,6 +1029,7 @@ function StepRibbon({ step, setStep, openCount, hasEditing, canCreate, isAdmin }
         <div className="step-title">Create Invoice → QuickBooks</div>
         <div className="step-meta">Push to QuickBooks</div>
       </div>
+      )}
       {isAdmin && (
       <div className={`step-card ${step===4?"active":""}`} onClick={()=>setStep(4)}>
         <div className="step-num">Setup</div>
@@ -1547,7 +1626,7 @@ function buildWoPdf(wo, hideRates){
 }
 
 // ─── STEP 2: OPEN WO LIST ────────────────────────────────────────────────────
-function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate, printerEmail, onNewDelivery, blanketPOs }) {
+function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, onEditInvoiced, onEditOpen, qboConnected, user, onReload, mayInvoice, canCreate, printerEmail, onNewDelivery, blanketPOs, handoff, tenant }) {
   const blanketTag = (wo) => { const bp = wo.po_number ? findBlanket(blanketPOs, wo.po_number) : null; if (!bp) return null; const st = blanketStats(bp, workOrders); if (st.remU == null) return null; return <> · <span style={{color: st.remU<=0 ? "var(--red)" : "var(--inv)", fontWeight:600}}>{Math.round(st.remU).toLocaleString()} {bp.unit} left on PO</span></>; };
   const newDeliveryLabel = (wo) => (wo.po_number && wo.po_number !== "N/A") ? "🔁 New delivery" : "⧉ Duplicate";
   const open = workOrders.filter(w => w.status === "open");
@@ -1654,6 +1733,9 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
   };
 
   if (loading) return <div className="sheet"><div className="empty-state">Loading…</div></div>;
+  if (handoff) return <HandoffWeek workOrders={workOrders} handoff={handoff} tenant={tenant} hideRates={hideRates}
+    canCreate={canCreate} onCreateNew={onCreateNew} onEditOpen={onEditOpen} onNewDelivery={onNewDelivery}
+    newDeliveryLabel={newDeliveryLabel} sharePdf={sharePdf} blanketTag={blanketTag} onReload={onReload} />;
 
   return (
     <>
@@ -1771,6 +1853,122 @@ function OpenList({ workOrders, hideRates, loading, onPickInvoice, onCreateNew, 
         </div>
       )}
     </>
+  );
+}
+
+// ─── HAND-OFF WEEK: this week's orders, emailed to the distributor who invoices them ──
+function HandoffWeek({ workOrders, handoff, tenant, hideRates, canCreate, onCreateNew, onEditOpen, onNewDelivery, newDeliveryLabel, sharePdf, blanketTag, onReload }) {
+  const [offset, setOffset] = useState(0);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const wk = weekRange(offset);
+  const label = fmtMD(wk.s) + " – " + fmtMD(wk.e) + ", " + wk.e.getFullYear();
+  const wos = workOrders.filter(w => woLive(w) && w.status !== "invoiced" && woTakenDate(w) >= wk.start && woTakenDate(w) <= wk.end)
+    .sort((a,b) => woDate(a).localeCompare(woDate(b)) || String(a.customer||"").localeCompare(String(b.customer||"")));
+  const total = wos.reduce((s,w)=>s+woAmount(w),0);
+  const unsent = wos.filter(w => !w.handoff_sent_at || woChangedSinceSent(w));
+  const to = handoff.name || "distributor";
+  const opts = { label, to, from: tenant ? tenant.name : "" };
+  const flash = (t, ms) => { setMsg(t); if (ms) setTimeout(()=>setMsg(""), ms); };
+
+  const markSent = async () => {
+    const ids = wos.map(w => w.id); if (!ids.length) return;
+    await supabase.from("work_orders").update({ handoff_sent_at: new Date().toISOString() }).in("id", ids);
+    onReload && onReload();
+  };
+  const emailWeek = async () => {
+    if (!wos.length) return;
+    if (!handoff.email) { flash("Add " + to + "'s email in Settings → Order hand-off first.", 6000); return; }
+    const subject = "Orders — week of " + label + " — " + opts.from;
+    const body = handoffEmailBody(wos, opts);
+    window.location.href = "mailto:" + handoff.email.split(",").map(x => encodeURIComponent(x.trim())).filter(Boolean).join(",") + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body);
+    await markSent();
+    flash("✓ Email opened to " + handoff.email + " — tap Send in Mail.", 8000);
+  };
+  const shareWeekPdf = async () => {
+    if (!wos.length) return;
+    setBusy(true);
+    try {
+      const blob = buildHandoffPdf(wos, opts);
+      const name = "Orders-week-" + wk.start + ".pdf";
+      const file = (typeof File !== "undefined") ? new File([blob], name, { type: "application/pdf" }) : null;
+      let shared = false;
+      if (file && navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+        try { await navigator.share({ files: [file], title: "Orders — week of " + label, text: "Orders for the week of " + label }); shared = true; }
+        catch (e) { if (e && e.name === "AbortError") { setBusy(false); return; } }
+      }
+      if (!shared) {
+        const url = URL.createObjectURL(blob);
+        const win = window.open(url, "_blank");
+        if (!win) { const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }
+      await markSent();
+    } catch (e) { flash("Couldn't build the PDF: " + e.message, 8000); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="sheet">
+      <div className="sheet-h">
+        <div>
+          <div className="sheet-title">Orders for {to}</div>
+          <div className="sheet-meta">{to} invoices these — they stay open here for your commission totals</div>
+        </div>
+        {canCreate && <button className="btn btn-primary btn-sm" onClick={onCreateNew}>＋ New</button>}
+      </div>
+
+      <div style={{display:"flex",alignItems:"center",gap:8,margin:"0 0 10px"}}>
+        <button className="btn btn-outline btn-sm" onClick={()=>setOffset(offset-1)}>‹</button>
+        <div style={{flex:1,textAlign:"center"}}>
+          <div style={{fontWeight:700,fontSize:14}}>{offset===0 ? "This week" : offset===1 ? "Next week" : offset===-1 ? "Last week" : "Week of"}</div>
+          <div style={{fontSize:12,color:"var(--muted)"}}>Orders taken {label}</div>
+        </div>
+        <button className="btn btn-outline btn-sm" onClick={()=>setOffset(offset+1)}>›</button>
+      </div>
+      {offset !== 0 && <div style={{textAlign:"center",marginBottom:8}}><button className="btn-text" onClick={()=>setOffset(0)} style={{fontSize:12}}>Back to this week</button></div>}
+
+      <div style={{background:"#fafaf6",borderRadius:6,padding:"10px 12px",marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}>
+          <span><b>{wos.length}</b> order{wos.length===1?"":"s"}{wos.length>0 && (unsent.length ? <> · <span style={{color:"var(--wip)",fontWeight:600}}>{unsent.length} not sent yet</span></> : <> · <span style={{color:"var(--inv)",fontWeight:600}}>all sent</span></>)}</span>
+          {!hideRates && <b>{fmt$(total)}</b>}
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+          <button className="btn btn-primary btn-sm" style={{flex:1}} disabled={!wos.length} onClick={emailWeek}>📧 Email week to {to}</button>
+          <button className="btn btn-outline btn-sm" disabled={!wos.length || busy} onClick={shareWeekPdf}>{busy ? "Building…" : "📄 Week PDF"}</button>
+        </div>
+        {!handoff.email && <div style={{fontSize:11,color:"var(--muted)",marginTop:6}}>Set {to}'s email in ⚙ Settings → Order hand-off.</div>}
+      </div>
+      {msg && <div style={{background:"#eef6f1",border:"1px solid #2ca01c",borderRadius:6,padding:"8px 12px",margin:"0 0 10px",fontSize:13}}>{msg}</div>}
+
+      {wos.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon">📋</div>
+          <div className="empty-state-h">No orders this week</div>
+          <div className="empty-state-p">Orders are grouped by the week they were taken. Use ‹ › to see other weeks.</div>
+        </div>
+      ) : wos.map(wo => {
+        const sentOk = wo.handoff_sent_at && !woChangedSinceSent(wo);
+        return (
+        <div key={wo.id} className="wo-card">
+          <div className="wo-meta-l">
+            <div className="wo-id">WO #{wo.id} · Deliver {wo.date}</div>
+            <div className="wo-customer">{wo.customer}</div>
+            <div className="wo-info">{(wo.lines||[]).length} line{(wo.lines||[]).length!==1?"s":""}{wo.po_number ? <> · PO <b>{wo.po_number}</b></> : null}{blanketTag(wo)}</div>
+          </div>
+          <div className="wo-meta-r">
+            {!hideRates && <div className="wo-amt">{fmt$(woAmount(wo))}</div>}
+            {sentOk ? <span className="wo-pill invoiced">Sent {fmtMD(new Date(wo.handoff_sent_at))}</span>
+                    : <span className="wo-pill open">{wo.handoff_sent_at ? "Changed" : "Not sent"}</span>}
+          </div>
+          <div className="wo-actions">
+            {canCreate && <button className="btn btn-outline btn-sm" onClick={()=>onEditOpen(wo)}>✎ Edit</button>}
+            <button className="btn btn-outline btn-sm" onClick={()=>sharePdf(wo)}>📄 PDF</button>
+            {canCreate && onNewDelivery && <button className="btn btn-outline btn-sm" onClick={()=>onNewDelivery(wo)}>{newDeliveryLabel(wo)}</button>}
+          </div>
+        </div>
+      );})}
+    </div>
   );
 }
 
@@ -2249,7 +2447,7 @@ function BlanketOrders({ blanketPOs, workOrders, tenant, onChange }) {
   );
 }
 
-function Dashboard({ workOrders, tenant, onOpenJobs, blanketPOs, onBlanketsChange }) {
+function Dashboard({ workOrders, tenant, onOpenJobs, blanketPOs, onBlanketsChange, handoff, hideRates }) {
   const qtyOf = (l) => (l.qty===""||l.qty==null) ? 1 : (Number(l.qty)||0);
   const woTotal = (wo) => (wo.lines||[]).reduce((s,l)=> s + qtyOf(l)*(Number(l.rate)||0), 0);
   const now = new Date();
@@ -2284,7 +2482,7 @@ function Dashboard({ workOrders, tenant, onOpenJobs, blanketPOs, onBlanketsChang
         <div className="dash-card dash-a" onClick={onOpenJobs} style={{cursor:"pointer"}}>
           <div className="lbl">Open jobs</div>
           <div className="val">{open.length}</div>
-          <div className="sub">{fmt$(openVal)} awaiting invoice</div>
+          <div className="sub">{fmt$(openVal)} {handoff ? "sent to " + (handoff.name || "distributor") : "awaiting invoice"}</div>
         </div>
         <div className="dash-card dash-b">
           <div className="lbl">Invoiced this month</div>
@@ -2302,8 +2500,9 @@ function Dashboard({ workOrders, tenant, onOpenJobs, blanketPOs, onBlanketsChang
           <div className="sub">per invoice</div>
         </div>
       </div>
+      {handoff && !hideRates && <CommissionPanel workOrders={workOrders} handoff={handoff} />}
       <div className="dash-section">
-        <h3>Revenue — last 6 months</h3>
+        <h3>{handoff ? "Invoiced in QuickBooks — last 6 months" : "Revenue — last 6 months"}</h3>
         <div className="dash-bar">
           {revByMonth.map(m => (
             <div key={m.key} title={fmt$(m.v)}>
@@ -2339,6 +2538,58 @@ function Dashboard({ workOrders, tenant, onOpenJobs, blanketPOs, onBlanketsChang
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─── COMMISSION: sales on orders handed off to the distributor, by week / month / quarter / year ──
+function CommissionPanel({ workOrders, handoff }) {
+  const pct = handoff.pct || 0;
+  const base = workOrders.filter(w => woLive(w) && w.status !== "invoiced");
+  const now = new Date();
+  const wk = weekRange(0);
+  const y = now.getFullYear(), m = now.getMonth(), q = Math.floor(m/3);
+  const pad = (n) => String(n).padStart(2,"0");
+  const lastDay = (yy, mm) => new Date(yy, mm+1, 0).getDate();
+  const periods = [
+    { k:"wk", lbl:"This week", sub: fmtMD(wk.s)+" – "+fmtMD(wk.e), a: wk.start, b: wk.end },
+    { k:"mo", lbl:"This month", sub: now.toLocaleString("default",{month:"long"}), a: y+"-"+pad(m+1)+"-01", b: y+"-"+pad(m+1)+"-"+pad(lastDay(y,m)) },
+    { k:"qt", lbl:"This quarter", sub: "Q"+(q+1)+" "+y, a: y+"-"+pad(q*3+1)+"-01", b: y+"-"+pad(q*3+3)+"-"+pad(lastDay(y,q*3+2)) },
+    { k:"yr", lbl:"This year", sub: String(y), a: y+"-01-01", b: y+"-12-31" },
+  ].map(p => { const ws = base.filter(w => woDate(w) >= p.a && woDate(w) <= p.b); const sales = ws.reduce((s,w)=>s+woAmount(w),0); return { ...p, n: ws.length, sales, comm: sales*pct/100 }; });
+  const weeks = [];
+  for (let i = -7; i <= 0; i++) { const r = weekRange(i); const ws = base.filter(w => woDate(w) >= r.start && woDate(w) <= r.end); const sales = ws.reduce((s,w)=>s+woAmount(w),0); weeks.push({ key: r.start, label: fmtMD(r.s), n: ws.length, sales, comm: sales*pct/100 }); }
+  const [show, setShow] = useState(false);
+  const csv = () => {
+    const rows = [["Delivery date","WO #","Customer","PO","Order total","Commission "+pct+"%"]];
+    base.filter(w => woDate(w).startsWith(String(y))).sort((a,b)=>woDate(a).localeCompare(woDate(b)))
+      .forEach(w => { const t = woAmount(w); rows.push([w.date||"", w.id, w.customer||"", w.po_number||"", t.toFixed(2), (t*pct/100).toFixed(2)]); });
+    const text = rows.map(r => r.map(c => /[",\n]/.test(String(c)) ? '"'+String(c).replace(/"/g,'""')+'"' : c).join(",")).join("\n");
+    const blob = new Blob([text], { type: "text/csv" }); const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "commission-"+y+".csv"; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 60000);
+  };
+  return (
+    <div className="dash-section">
+      <h3>Commission — {pct}% of sales through {handoff.name || "distributor"}</h3>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8}}>
+        {periods.map(p => (
+          <div key={p.k} style={{background:"#fafaf6",borderRadius:6,padding:"10px 12px"}}>
+            <div style={{fontSize:11,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".04em"}}>{p.lbl}</div>
+            <div style={{fontSize:20,fontWeight:700,margin:"2px 0"}}>{fmt$(p.comm)}</div>
+            <div style={{fontSize:12,color:"var(--muted)"}}>{fmt$(p.sales)} sales · {p.n} order{p.n===1?"":"s"}</div>
+            <div style={{fontSize:11,color:"var(--muted)"}}>{p.sub}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:12,marginTop:10,alignItems:"center"}}>
+        <button className="btn-text" style={{fontSize:12}} onClick={()=>setShow(!show)}>{show ? "Hide" : "Show"} last 8 weeks</button>
+        <button className="btn-text" style={{fontSize:12}} onClick={csv}>⬇ {y} detail (CSV)</button>
+      </div>
+      {show && weeks.slice().reverse().map(w => (
+        <div key={w.key} className="dash-row"><span>Week of {w.label} · {w.n}</span><span>{fmt$(w.sales)} · <b>{fmt$(w.comm)}</b></span></div>
+      ))}
+      {pct === 0 && <div style={{fontSize:12,color:"var(--red)",marginTop:6}}>Set your commission % in ⚙ Settings → Order hand-off.</div>}
     </div>
   );
 }
@@ -3080,6 +3331,21 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
   const [savingSetting, setSavingSetting] = useState(false);
   const [printerEmail, setPrinterEmail] = useState(settings?.printer_email || "");
   const [savingPrinter, setSavingPrinter] = useState(false);
+  const [ho, setHo] = useState({ enabled: !!settings?.handoff_enabled, name: settings?.handoff_name || "", email: settings?.handoff_email || "", pct: settings?.commission_pct ?? "" });
+  const [savingHo, setSavingHo] = useState(false);
+  const saveHandoff = async () => {
+    setSavingHo(true);
+    try {
+      const { error } = await supabase.from("tenant_settings").update({
+        handoff_enabled: !!ho.enabled, handoff_name: ho.name.trim() || null, handoff_email: ho.email.trim() || null,
+        commission_pct: ho.pct === "" ? null : Number(ho.pct), updated_at: new Date().toISOString(),
+      }).eq("tenant_id", tenant.id);
+      if (error) throw error;
+      onSettingsChange();
+      alert("✅ Order hand-off saved");
+    } catch (e) { alert(`Could not save: ${e.message}`); }
+    setSavingHo(false);
+  };
   const isAdmin = userRole === "owner" || userRole === "admin";
 
   useEffect(() => {
@@ -3310,6 +3576,24 @@ function Settings({ tenant, user, userRole, qboConnected, settings, onClose, onQ
                 </div>
                 <button className="btn btn-primary btn-sm" onClick={savePrinter} disabled={savingPrinter}>{savingPrinter?"Saving…":"Save"}</button>
               </div>
+            </div>
+          )}
+
+          {isAdmin && (
+            <div className="settings-section">
+              <div className="settings-h">Order hand-off</div>
+              <div className="settings-sub">Use this when another company invoices your orders (for example, after selling your routes). Orders stay open here, Step 2 shows each week's orders with one button to email them over, and the Dashboard totals your commission by week, month, quarter and year.</div>
+              <label style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#fafaf6",borderRadius:6,cursor:"pointer",marginBottom:10}}>
+                <input type="checkbox" checked={ho.enabled} onChange={e=>setHo({...ho, enabled:e.target.checked})} style={{width:18,height:18}}/>
+                <div style={{fontSize:13,fontWeight:600}}>Orders go to another company to invoice</div>
+              </label>
+              <label className="label">Company name</label>
+              <input className="input" value={ho.name} onChange={e=>setHo({...ho, name:e.target.value})} placeholder="Jones Lake Management"/>
+              <label className="label" style={{marginTop:8}}>Email orders to</label>
+              <input className="input" type="email" value={ho.email} onChange={e=>setHo({...ho, email:e.target.value})} placeholder="billing@example.com (comma-separate for more than one)"/>
+              <label className="label" style={{marginTop:8}}>Your commission %</label>
+              <input className="input" type="number" step="0.1" inputMode="decimal" value={ho.pct} onChange={e=>setHo({...ho, pct:e.target.value})} placeholder="5"/>
+              <button className="btn btn-primary btn-sm" style={{marginTop:10}} onClick={saveHandoff} disabled={savingHo}>{savingHo?"Saving…":"Save"}</button>
             </div>
           )}
 
