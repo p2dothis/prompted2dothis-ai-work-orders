@@ -1,6 +1,6 @@
 {
-  "name": "P2 Invoicing",
-  "short_name": "P2 Invoicing",
+  "name": "P2 Work Orders",
+  "short_name": "P2 Work Orders",
   "description": "Field work orders to paid invoices, from your phone.",
   "start_url": "./",
   "display": "standalone",

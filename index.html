@@ -8,9 +8,9 @@
   <link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Work Orders">
+  <meta name="apple-mobile-web-app-title" content="P2 Work Orders">
 
-<title>AI Work Orders</title>
+<title>P2 Work Orders</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -582,7 +582,7 @@ function Landing({ onSignup, onSignin }) {
   return (
     <div className="landing">
       <div className="landing-hero">
-        <div className="landing-logo">AI Work Orders</div>
+        <div className="landing-logo">P2 Work Orders</div>
         <div className="landing-tag">By Prompted To Do This</div>
         <h1 className="landing-h1">Work orders that flow directly to QuickBooks.</h1>
         <p className="landing-sub">Stop double-entering data. Create work orders in the field, auto-sync to QuickBooks invoices, get paid faster.</p>
@@ -620,7 +620,7 @@ function SetNewPassword({ onDone }) {
   };
   return (
     <div className="auth-wrap"><div className="auth-card">
-      <div className="auth-logo">AI Work Orders</div>
+      <div className="auth-logo">P2 Work Orders</div>
       <div className="auth-tag">By Prompted To Do This</div>
       <h2 className="auth-h2">Choose a new password</h2>
       <p className="auth-sub">You're here from your reset link — set a new password to finish.</p>
@@ -653,7 +653,7 @@ function SignIn({ onSwitchSignup, onBack }) {
   };
   return (
     <div className="auth-wrap"><div className="auth-card">
-      <div className="auth-logo">AI Work Orders</div>
+      <div className="auth-logo">P2 Work Orders</div>
       <div className="auth-tag">By Prompted To Do This</div>
       {forgot ? (
         <>
@@ -701,14 +701,14 @@ function SignUp({ onSwitchSignin, onBack }) {
     if(error)setErr(error.message); else setSuccess(true); setLoading(false);};
   if(success) return (
     <div className="auth-wrap"><div className="auth-card">
-      <div className="auth-logo">AI Work Orders</div>
+      <div className="auth-logo">P2 Work Orders</div>
       <div className="auth-tag">By Prompted To Do This</div>
       <div className="alert alert-success"><strong>Check your email!</strong> We sent a confirmation link to <strong>{email}</strong>. Click it to verify, then sign in.</div>
       <button className="btn btn-primary btn-full" onClick={onSwitchSignin}>Go to Sign In</button>
     </div></div>);
   return (
     <div className="auth-wrap"><div className="auth-card">
-      <div className="auth-logo">AI Work Orders</div>
+      <div className="auth-logo">P2 Work Orders</div>
       <div className="auth-tag">By Prompted To Do This</div>
       <h2 className="auth-h2">Create your account</h2>
       <p className="auth-sub">Start your free 30-day trial. No credit card required.</p>
@@ -742,7 +742,7 @@ function SetupWizard({ user, onComplete }) {
   const next=()=>{if(step===1&&!companyName.trim()){setErr("Company name is required");return;}setErr("");setStep(step+1);};
   return (
     <div className="auth-wrap"><div className="auth-card" style={{maxWidth:460}}>
-      <div className="auth-logo">Welcome to AI Work Orders</div>
+      <div className="auth-logo">Welcome to P2 Work Orders</div>
       <div className="auth-tag">Let's get you set up — 2 minutes</div>
       <div className="wizard-steps">
         <div className={`wizard-step ${step>=1?"active":""} ${step>1?"done":""}`}/>
@@ -792,7 +792,7 @@ function SetupWizard({ user, onComplete }) {
           <div style={{fontSize:13,marginBottom:6}}><strong>Plan:</strong> {PLANS.find(p=>p.id===plan)?.name} — ${PLANS.find(p=>p.id===plan)?.price}/mo</div>
           <div style={{fontSize:12,color:"var(--muted)",marginTop:8}}>30-day free trial. Cancel anytime.</div>
         </div>
-        <button className="btn btn-primary btn-full" onClick={finish} disabled={loading}>{loading?"Setting up…":"Create my AI Work Orders account"}</button>
+        <button className="btn btn-primary btn-full" onClick={finish} disabled={loading}>{loading?"Setting up…":"Create my P2 Work Orders account"}</button>
         <div className="auth-foot"><button className="btn-link" onClick={()=>setStep(2)}>← Back</button></div>
       </>}
     </div></div>);
@@ -899,7 +899,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
     <div className="app">
       <div className="topbar">
         <div className="topbar-left">
-          <div className="topbar-logo">AI Work Orders <span style={{fontSize:9,opacity:0.55,fontWeight:400}}>v2·pricing</span></div>
+          <div className="topbar-logo">P2 Work Orders <span style={{fontSize:9,opacity:0.55,fontWeight:400}}>v2·pricing</span></div>
           <div className="tenant-name">{tenant.name}</div>
         </div>
         <div className="topbar-right">
@@ -916,7 +916,7 @@ function WorkOrderApp({ user, tenant, userRole, canInvoice }) {
       {needsSub && (
         <div style={{background:"#fbeed8",borderBottom:"1px solid #e7c389",padding:"10px 16px",fontSize:13,textAlign:"center",color:"#7a4e12"}}>
           Your trial has ended — {isAdmin
-            ? <button className="btn-text" onClick={()=>setShowSettings(true)} style={{color:"#7a4e12",fontWeight:700,textDecoration:"underline",padding:0}}>subscribe to keep AI Work Orders</button>
+            ? <button className="btn-text" onClick={()=>setShowSettings(true)} style={{color:"#7a4e12",fontWeight:700,textDecoration:"underline",padding:0}}>subscribe to keep P2 Work Orders</button>
             : <span style={{fontWeight:600}}>ask your owner to subscribe.</span>}
         </div>
       )}
